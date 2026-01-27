@@ -128,7 +128,7 @@ impl Task {
         self.inner.lock().exit_code
     }
 
-    pub fn inner(&self) -> MutexGuard<TaskInner> {
+    pub fn inner(&self) -> MutexGuard<'_, TaskInner> {
         self.inner.lock()
     }
 

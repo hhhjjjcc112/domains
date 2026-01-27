@@ -1,16 +1,16 @@
 [package]
 name = "vf2_sd"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 
 [dependencies]
 interface = { path = "../../../../domain-lib/interface" }
 shared_heap = { path = "../../../../domain-lib/shared_heap" }
 basic = { path = "../../../../domain-lib/basic" }
-visionfive2-sd = { git = "https://github.com/os-module/visionfive2-sd.git" }
+visionfive2-sd = { path = "../../../../utils/visionfive2-sd" }
 #visionfive2-sd = { path = "../../../../os-modules/visionfive2-sd" }
-fatfs = { git = "https://github.com/os-module/rust-fatfs.git", default-features = false, features = [
+fatfs = { path = "../../../../utils/rust-fatfs", default-features = false, features = [
     "alloc",
     "lfn",
 ], optional = true }

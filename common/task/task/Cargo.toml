@@ -11,13 +11,13 @@ interface = { path = "../../../../domain-lib/interface" }
 shared_heap = { path = "../../../../domain-lib/shared_heap" }
 task_meta = { path = "../../../../domain-lib/task_meta" }
 
-small-index = { git = "https://github.com/os-module/small-index" }
+small-index = { path = "../../../../utils/small-index" }
 vfscore = { path = "../../../../rvfs-ref/vfscore-ref", package = "vfscore-ref", features = ["linux_error"] }
-page_table = { git = "https://github.com/os-module/page-table.git", package = "page-table" }
-memory_addr = { git ="https://github.com/os-module/memory_addr" }
+page_table = { path = "../../../../utils/page-table", package = "page-table" }
+memory_addr = { path ="../../../../utils/memory_addr" }
 
 pod = { git = "https://github.com/asterinas/pod", rev = "d7dba56" }
-ptable = { git = "https://github.com/os-module/vmspace", package = "vmspace" }
+ptable = { path = "../../../../utils/vmspace", package = "vmspace" }
 
 
 spin = "0"

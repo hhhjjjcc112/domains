@@ -1,6 +1,6 @@
 #![no_std]
 #![forbid(unsafe_code)]
-#![feature(trait_upcasting)]
+
 #![feature(btreemap_alloc)]
 #![feature(allocator_api)]
 extern crate alloc;

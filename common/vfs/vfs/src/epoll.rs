@@ -43,7 +43,7 @@ impl EpollFile {
             }
         }
     }
-    pub fn interest(&self) -> MutexGuard<BTreeMap<usize, EpollEvent>> {
+    pub fn interest(&self) -> MutexGuard<'_, BTreeMap<usize, EpollEvent>> {
         self.interest.lock()
     }
 }

@@ -7,7 +7,6 @@
   "eh-frame-header": true,
   "emit-debug-gdb-scripts": false,
   "features": "+m,+a,+f,+d,+c",
-  "is-builtin": false,
   "linker": "rust-lld",
   "linker-flavor": "gnu-lld",
   "llvm-abiname": "lp64d",
@@ -24,5 +23,5 @@
   "supported-sanitizers": [
     "kernel-address"
   ],
-  "target-pointer-width": "64"
+  "target-pointer-width": 64
 }

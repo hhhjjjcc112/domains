@@ -9,7 +9,7 @@ rustflags = [
     "-A", "unused_imports",
     "--cfg", "getrandom_backend=\"custom\""
 ]
-linker = "riscv64-linux-gnu-gcc"
+linker = "riscv64-linux-musl-gcc"
 
 
 [profile.release]

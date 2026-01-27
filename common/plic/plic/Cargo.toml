@@ -1,7 +1,7 @@
 [package]
 name = "plic"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -11,4 +11,4 @@ shared_heap = { path = "../../../../domain-lib/shared_heap" }
 basic = { path = "../../../../domain-lib/basic" }
 
 spin = "0"
-raw_plic = { git = "https://github.com/os-module/plic", branch = "dev", package = "plic" }
+raw_plic = { path = "../../../../utils/plic", package = "raw-plic" }

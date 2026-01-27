@@ -1,7 +1,7 @@
 [package]
 name = "net_stack"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 
 [dependencies]
@@ -11,6 +11,6 @@ basic = { path = "../../../../domain-lib/basic" }
 
 
 spin = "0"
-lose-net-stack = { git = "https://github.com/os-module/lose-net-stack", branch = "new_feature", features = ["log"]}
+lose-net-stack = { path = "../../../../utils/lose-net-stack", features = ["log"]}
 log = "0"
 downcast-rs = { version = "1.2.0", default-features = false }
