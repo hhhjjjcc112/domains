@@ -89,6 +89,10 @@ impl PLICDomain for PLICDomainImpl {
                 privileges[0] = 1;
                 privileges
             }
+            PlicType::Apic => {
+                // x86-64 uses APIC, not PLIC - this domain shouldn't be used
+                panic!("APIC is not supported by PLIC domain, use APIC domain instead");
+            }
         };
         PLIC.call_once(|| PLIC::new(Box::new(SafeIORegionWrapper(plic_space)), privileges));
         println!("Init qemu plic success");

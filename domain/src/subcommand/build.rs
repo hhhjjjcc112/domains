@@ -1,6 +1,26 @@
-use std::{fs, path::Path};
+use std::{env, fs, path::Path, process};
 
 use crate::subcommand::{Config, DOMAIN_SET};
+
+/// Valid architectures
+const VALID_ARCHS: [&str; 3] = ["riscv64", "x86_64", "plat_vf2"];
+
+/// Get target configuration based on ARCH environment variable
+fn get_target_config() -> (&'static str, &'static str) {
+    let arch = env::var("ARCH").unwrap_or_else(|_| "riscv64".to_string());
+    
+    // Validate architecture
+    if !VALID_ARCHS.contains(&arch.as_str()) {
+        eprintln!("Error: Invalid ARCH='{}'. Valid values are: {:?}", arch, VALID_ARCHS);
+        process::exit(1);
+    }
+    
+    match arch.as_str() {
+        "x86_64" => ("./x86_64.json", "x86_64"),
+        "riscv64" | "plat_vf2" => ("./riscv64.json", "riscv64"),
+        _ => unreachable!(),
+    }
+}
 
 fn check_output_exist(output: &String) {
     let disk_path = format!("{}/disk", output);
@@ -44,7 +64,8 @@ pub fn build_single(name: &str, log: &str, output: &String) {
 }
 
 pub fn build_domain(name: &str, log: String, dir: &str, output: &String) {
-    println!("Building domain [{}] project", name);
+    let (target_json, target_dir) = get_target_config();
+    println!("Building domain [{}] project for target: {}", name, target_dir);
     for ty in DOMAIN_SET {
         let path = format!("./{}/{}/g{}/Cargo.toml", ty, name, name);
         let path = Path::new(&path);
@@ -59,7 +80,7 @@ pub fn build_domain(name: &str, log: String, dir: &str, output: &String) {
                 .arg("--manifest-path")
                 .arg(path)
                 .arg("--target")
-                .arg("./riscv64.json")
+                .arg(target_json)
                 .arg("-Zbuild-std=core,alloc")
                 .arg("-Zbuild-std-features=compiler-builtins-mem")
                 .arg("--target-dir")
@@ -68,7 +89,7 @@ pub fn build_domain(name: &str, log: String, dir: &str, output: &String) {
                 .expect("failed to execute cargo build");
             println!("Build domain [{}] project success", name);
             std::process::Command::new("cp")
-                .arg(format!("./target/riscv64/release/g{}", name))
+                .arg(format!("./target/{}/release/g{}", target_dir, name))
                 .arg(format!("{}/{}/g{}", output, dir, name))
                 .status()
                 .expect("failed to execute cp");

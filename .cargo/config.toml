@@ -11,6 +11,14 @@ rustflags = [
 ]
 linker = "riscv64-linux-musl-gcc"
 
+[target.x86_64]
+rustflags = [
+    "-Clink-arg=-T../../domain.ld",
+    "-Clink-arg=-pie",
+    "-A", "unused_imports",
+    "--cfg", "getrandom_backend=\"custom\""
+]
+linker = "x86_64-linux-musl-gcc"
 
 [profile.release]
 lto = true
