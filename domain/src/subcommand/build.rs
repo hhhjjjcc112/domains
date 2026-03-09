@@ -1,23 +1,59 @@
-use std::{env, fs, path::Path, process};
+use std::{env, fs, path::{Path, PathBuf}, process};
 
 use crate::subcommand::{Config, DOMAIN_SET};
 
 /// Valid architectures
-const VALID_ARCHS: [&str; 3] = ["riscv64", "x86_64", "plat_vf2"];
+const VALID_ARCHS: [&str; 3] = ["riscv64", "x86_64", "vf2"];
+const VALID_PLATFORMS: [&str; 3] = ["plat_qemu_riscv", "plat_qemu_x86_64", "plat_vf2"];
 
 /// Get target configuration based on ARCH environment variable
 fn get_target_config() -> (&'static str, &'static str) {
     let arch = env::var("ARCH").unwrap_or_else(|_| "riscv64".to_string());
+    let platform = env::var("PLATFORM").ok();
     
     // Validate architecture
     if !VALID_ARCHS.contains(&arch.as_str()) {
         eprintln!("Error: Invalid ARCH='{}'. Valid values are: {:?}", arch, VALID_ARCHS);
         process::exit(1);
     }
+
+    if let Some(ref plat) = platform {
+        if !VALID_PLATFORMS.contains(&plat.as_str()) {
+            eprintln!(
+                "Error: Invalid PLATFORM='{}'. Valid values are: {:?}",
+                plat, VALID_PLATFORMS
+            );
+            process::exit(1);
+        }
+    }
+
+    // Backward-compatible ARCH=vf2 alias.
+    let arch_kind = if arch == "x86_64" { "x86_64" } else { "riscv64" };
+    let default_platform = if arch == "vf2" {
+        "plat_vf2"
+    } else if arch == "x86_64" {
+        "plat_qemu_x86_64"
+    } else {
+        "plat_qemu_riscv"
+    };
+    let platform = platform.unwrap_or_else(|| default_platform.to_string());
+
+    let valid_combo = match arch_kind {
+        "x86_64" => platform == "plat_qemu_x86_64",
+        "riscv64" => matches!(platform.as_str(), "plat_qemu_riscv" | "plat_vf2"),
+        _ => false,
+    };
+    if !valid_combo {
+        eprintln!(
+            "Error: Invalid ARCH/PLATFORM combination: ARCH='{}', PLATFORM='{}'",
+            arch, platform
+        );
+        process::exit(1);
+    }
     
-    match arch.as_str() {
+    match arch_kind {
         "x86_64" => ("./x86_64.json", "x86_64"),
-        "riscv64" | "plat_vf2" => ("./riscv64.json", "riscv64"),
+        "riscv64" => ("./riscv64.json", "riscv64"),
         _ => unreachable!(),
     }
 }
@@ -32,6 +68,34 @@ fn check_output_exist(output: &String) {
         fs::create_dir_all(&format!("{}/disk", output)).unwrap();
         fs::create_dir_all(&format!("{}/init", output)).unwrap();
     }
+}
+
+fn gen_domain_linker_script(target_dir: &str) -> PathBuf {
+    let output_arch = match target_dir {
+        "x86_64" => "i386:x86-64",
+        "riscv64" => "riscv",
+        _ => unreachable!(),
+    };
+    let template_path = Path::new("./domain.ld");
+    let template = fs::read_to_string(template_path).expect("failed to read domain.ld template");
+    let linker_script = template
+        .lines()
+        .map(|line| {
+            if line.trim_start().starts_with("OUTPUT_ARCH(") {
+                format!("OUTPUT_ARCH({})", output_arch)
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let output_path = PathBuf::from(format!("./target/domain-{}.ld", target_dir));
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).expect("failed to create target directory for ld script");
+    }
+    fs::write(&output_path, linker_script).expect("failed to generate temporary domain linker script");
+    output_path
 }
 
 pub fn build_single(name: &str, log: &str, output: &String) {
@@ -65,6 +129,9 @@ pub fn build_single(name: &str, log: &str, output: &String) {
 
 pub fn build_domain(name: &str, log: String, dir: &str, output: &String) {
     let (target_json, target_dir) = get_target_config();
+    let linker_script = gen_domain_linker_script(target_dir);
+    let linker_script = fs::canonicalize(linker_script)
+        .expect("failed to canonicalize temporary domain linker script");
     println!("Building domain [{}] project for target: {}", name, target_dir);
     for ty in DOMAIN_SET {
         let path = format!("./{}/{}/g{}/Cargo.toml", ty, name, name);
@@ -73,8 +140,9 @@ pub fn build_domain(name: &str, log: String, dir: &str, output: &String) {
             let path = format!("./{}/{}/g{}/Cargo.toml", ty, name, name);
             let path = Path::new(&path);
             println!("Start building domain,path: {:?}", path);
+            // 仅动态传入临时链接脚本，其他编译参数保持在 .cargo/config.toml。
             let _cmd = std::process::Command::new("cargo")
-                .arg("build")
+                .arg("rustc")
                 .arg("--release")
                 .env("LOG", log)
                 .arg("--manifest-path")
@@ -85,6 +153,8 @@ pub fn build_domain(name: &str, log: String, dir: &str, output: &String) {
                 .arg("-Zbuild-std-features=compiler-builtins-mem")
                 .arg("--target-dir")
                 .arg("./target")
+                .arg("--")
+                .arg(format!("-Clink-arg=-T{}", linker_script.display()))
                 .status()
                 .expect("failed to execute cargo build");
             println!("Build domain [{}] project success", name);

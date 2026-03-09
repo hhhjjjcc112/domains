@@ -7,7 +7,7 @@
   "disable-redzone": true,
   "eh-frame-header": true,
   "emit-debug-gdb-scripts": false,
-  "features": "+soft-float,-sse,-sse2,-mmx,-x87",
+  "features": "-mmx",
   "linker": "rust-lld",
   "linker-flavor": "gnu-lld",
   "llvm-target": "x86_64-unknown-none",

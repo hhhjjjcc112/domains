@@ -90,8 +90,9 @@ impl PLICDomain for PLICDomainImpl {
                 privileges
             }
             PlicType::Apic => {
-                // x86-64 uses APIC, not PLIC - this domain shouldn't be used
-                panic!("APIC is not supported by PLIC domain, use APIC domain instead");
+                // x86-64 暂复用接口层，不初始化 raw_plic。
+                println!("x86 APIC mode: skip raw_plic init");
+                return Ok(());
             }
         };
         PLIC.call_once(|| PLIC::new(Box::new(SafeIORegionWrapper(plic_space)), privileges));
@@ -100,6 +101,12 @@ impl PLICDomain for PLICDomainImpl {
     }
 
     fn handle_irq(&self) -> AlienResult<()> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            // x86 外部中断由 APIC 路径处理，这里先保持兼容接口。
+            return Ok(());
+        }
+
         let plic = PLIC.get().unwrap();
         let hart_id = arch::hart_id();
         let irq = plic.claim(hart_id as u32, Mode::Supervisor) as usize;
@@ -131,6 +138,16 @@ impl PLICDomain for PLICDomainImpl {
     }
 
     fn register_irq(&self, irq: usize, device_domain_name: &DVec<u8>) -> AlienResult<()> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let mut table = self.table.lock();
+            let device_domain_name = core::str::from_utf8(device_domain_name.as_slice()).unwrap();
+            table.insert(irq, DeviceDomain::Name(device_domain_name.to_string()));
+            self.count.lock().insert(irq, 0);
+            println!("x86 APIC mode: record irq {} -> {}", irq, device_domain_name);
+            return Ok(());
+        }
+
         let hard_id = arch::hart_id();
         println!(
             "PLIC enable irq {} for hart {}, priority {}",

@@ -19,11 +19,24 @@ use basic::{
 };
 use interface::{define_unwind_for_BlkDeviceDomain, Basic, BlkDeviceDomain, DeviceBase};
 use shared_heap::{DBox, DVec};
-use virtio_drivers::{device::block::VirtIOBlk, transport::mmio::MmioTransport};
+#[cfg(target_arch = "riscv64")]
+use virtio_drivers::transport::mmio::MmioTransport;
+#[cfg(target_arch = "x86_64")]
+use virtio_drivers::transport::{
+    DeviceType,
+    pci::{
+        PciTransport, virtio_device_type,
+        bus::{Cam, Command, PciRoot},
+    },
+};
+use virtio_drivers::device::block::VirtIOBlk;
 use virtio_mmio_common::{HalImpl, SafeIORW};
 
 pub struct BlkDomain {
+    #[cfg(target_arch = "riscv64")]
     blk: Once<Mutex<VirtIOBlk<HalImpl, MmioTransport>>>,
+    #[cfg(target_arch = "x86_64")]
+    blk: Once<Mutex<VirtIOBlk<HalImpl, PciTransport>>>,
 }
 
 impl BlkDomain {
@@ -54,12 +67,50 @@ impl BlkDeviceDomain for BlkDomain {
     fn init(&self, device_info: &Range<usize>) -> AlienResult<()> {
         let region = device_info;
         println!("virtio_blk_addr: {:#x}-{:#x}", region.start, region.end);
+
+        #[cfg(target_arch = "riscv64")]
+        {
+            let io_region = SafeIORW(SafeIORegion::from(device_info.clone()));
+            let transport = MmioTransport::new(Box::new(io_region)).unwrap();
+            let blk = VirtIOBlk::<HalImpl, MmioTransport>::new(transport)
+                .expect("failed to create virtio_blk");
+            self.blk.call_once(|| Mutex::new(blk));
+            return Ok(());
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            let ecam = SafeIORW(SafeIORegion::from(device_info.clone()));
+            let mut root = PciRoot::new(Box::new(ecam), Cam::Ecam);
+
+            let mut found = None;
+            'outer: for bus in 0u8..=u8::MAX {
+                for (device_function, info) in root.enumerate_bus(bus) {
+                    if virtio_device_type(&info) == Some(DeviceType::Block) {
+                        found = Some((device_function, info));
+                        break 'outer;
+                    }
+                }
+            }
+
+            let (device_function, info) = found.expect("virtio-pci block not found in ECAM");
+            println!("virtio-pci block bdf={} ({})", device_function, info);
+
+            let (_status, mut command) = root.get_status_command(device_function);
+            command.insert(Command::BUS_MASTER | Command::MEMORY_SPACE | Command::IO_SPACE);
+            root.set_command(device_function, command);
+
+            let transport = PciTransport::new::<HalImpl>(&mut root, device_function)
+                .expect("failed to create virtio-pci transport");
+            let blk = VirtIOBlk::<HalImpl, PciTransport>::new(transport)
+                .expect("failed to create virtio-pci block");
+            self.blk.call_once(|| Mutex::new(blk));
+            return Ok(());
+        }
+
+        #[allow(unreachable_code)]
         let io_region = SafeIORW(SafeIORegion::from(device_info.clone()));
-        let transport = MmioTransport::new(Box::new(io_region)).unwrap();
-        let blk = VirtIOBlk::<HalImpl, MmioTransport>::new(transport)
-            .expect("failed to create virtio_blk");
-        // blk.enable_receive_interrupt()?;
-        self.blk.call_once(|| Mutex::new(blk));
+        let _ = io_region;
         Ok(())
     }
     fn read_block(&self, block: u32, mut data: DVec<u8>) -> AlienResult<DVec<u8>> {
