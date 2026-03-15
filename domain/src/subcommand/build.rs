@@ -1,6 +1,6 @@
 use std::{env, fs, path::{Path, PathBuf}, process};
 
-use crate::subcommand::{Config, DOMAIN_SET};
+use crate::subcommand::{pick_domain_list, Config, DOMAIN_SET};
 
 /// Valid architectures
 const VALID_ARCHS: [&str; 3] = ["riscv64", "x86_64", "vf2"];
@@ -102,7 +102,7 @@ pub fn build_single(name: &str, log: &str, output: &String) {
     check_output_exist(output);
     let domain_list = fs::read_to_string("./domain-list.toml").unwrap();
     let config: Config = toml::from_str(&domain_list).unwrap();
-    let all_members = config.domains.get("members").unwrap();
+    let all_members = pick_domain_list(&config, "members");
     let r_name = name;
     if !all_members.contains(&r_name.to_string()) {
         println!(
@@ -111,11 +111,11 @@ pub fn build_single(name: &str, log: &str, output: &String) {
         );
         return;
     }
-    let init_members = config.domains.get("init_members").unwrap();
+    let init_members = pick_domain_list(&config, "init_members");
     if init_members.contains(&r_name.to_string()) {
         build_domain(r_name, log.to_string(), "init", output);
     } else {
-        let disk_members = config.domains.get("disk_members").unwrap();
+        let disk_members = pick_domain_list(&config, "disk_members");
         if disk_members.contains(&r_name.to_string()) {
             build_domain(r_name, log.to_string(), "disk", output);
         } else {
@@ -174,8 +174,8 @@ pub fn build_all(log: String, output: &String) {
     let domain_list = fs::read_to_string("./domain-list.toml").unwrap();
     let config: Config = toml::from_str(&domain_list).unwrap();
     println!("Start building all domains");
-    let all_members = config.domains.get("members").unwrap().clone();
-    let init_members = config.domains.get("init_members").unwrap().clone();
+    let all_members = pick_domain_list(&config, "members");
+    let init_members = pick_domain_list(&config, "init_members");
     for domain_name in init_members {
         if !all_members.contains(&domain_name) {
             println!(
@@ -187,7 +187,7 @@ pub fn build_all(log: String, output: &String) {
         let value = log.to_string();
         build_domain(&domain_name, value, "init", output)
     }
-    let disk_members = config.domains.get("disk_members").unwrap().clone();
+    let disk_members = pick_domain_list(&config, "disk_members");
     if !disk_members.is_empty() {
         for domain_name in disk_members {
             if !all_members.contains(&domain_name) {

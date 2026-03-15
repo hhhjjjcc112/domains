@@ -7,6 +7,12 @@ Domains can be categorized into three types: Common, Fs, and Driver.
 - Fs domains are used to provide file system functionalities, such as devfs, dynfs, ramfs, fat-vfs, and domainfs. 
 - Driver domains are used to provide device driver functionalities, such as uart8250, virtio-net, visionfive2-sd, plic, and rtc.
 
+## 架构差异说明
+
+- riscv64 专属域：`plic`、`goldfish`、`vf2_sd`（`vf2_sd` 仅 VF2 平台使用）。
+- x86_64 不应引入上述专属域，相关构建由 `domains/domain-list.toml` 的 `*_x86_64` 列表控制。
+- 通用域优先保持同名同职责，按需通过 `#[cfg(target_arch = ...)]` 在域内做细分实现。
+
 
 See [AlienOS](https://github.com/Godones/Alien/tree/isolation) to know how to load/unload/update a domain.
 

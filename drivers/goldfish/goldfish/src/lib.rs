@@ -1,5 +1,8 @@
 #![no_std]
 #![forbid(unsafe_code)]
+
+#[cfg(not(target_arch = "riscv64"))]
+compile_error!("goldfish domain 仅支持 riscv64");
 extern crate alloc;
 
 use alloc::{boxed::Box, format, string::String};

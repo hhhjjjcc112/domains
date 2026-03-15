@@ -13,11 +13,11 @@ task_meta = { path = "../../../../domain-lib/task_meta" }
 
 small-index = { path = "../../../../utils/small-index" }
 vfscore = { path = "../../../../rvfs-ref/vfscore-ref", package = "vfscore-ref", features = ["linux_error"] }
-page_table = { path = "../../../../utils/page-table", package = "page-table" }
-memory_addr = { path ="../../../../utils/memory_addr" }
+page_table = { path = "../../../../base/mem/crates/page-table", package = "page-table" }
+memory_addr = { path ="../../../../base/mem/crates/memory_addr" }
 
 pod = { git = "https://github.com/asterinas/pod", rev = "d7dba56" }
-ptable = { path = "../../../../utils/vmspace", package = "vmspace" }
+ptable = { path = "../../../../base/mem/crates/vmspace", package = "vmspace" }
 
 
 spin = "0"

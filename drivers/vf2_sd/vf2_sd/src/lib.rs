@@ -1,6 +1,9 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+#[cfg(not(target_arch = "riscv64"))]
+compile_error!("vf2_sd domain 仅支持 riscv64");
+
 #[cfg(feature = "fs_test")]
 mod fs_test;
 mod ops;

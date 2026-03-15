@@ -84,6 +84,7 @@ pub fn scan_system_devices(devfs_domain: &Arc<dyn DevFsDomain>, root_dt: &Arc<dy
     let mouse = basic::get_domain("virtio_mmio_input-1");
     let keyboard = basic::get_domain("virtio_mmio_input-2");
     let blk = basic::get_domain("cache_blk-1");
+    #[cfg(target_arch = "riscv64")]
     let rtc = basic::get_domain("goldfish"); // unique name
 
     match uart {
@@ -179,6 +180,7 @@ pub fn scan_system_devices(devfs_domain: &Arc<dyn DevFsDomain>, root_dt: &Arc<dy
         None => panic!("blk domain not found"),
     }
 
+    #[cfg(target_arch = "riscv64")]
     match rtc {
         Some(_) => {
             let rtc_id = alloc_device_id(VfsNodeType::CharDevice);

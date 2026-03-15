@@ -1,14 +1,14 @@
 use std::{fs, path::Path};
 
-use crate::subcommand::{Config, DOMAIN_SET};
+use crate::subcommand::{pick_domain_list, Config, DOMAIN_SET};
 
 pub fn clean_domain(name: String) {
     let domain_list = fs::read_to_string("./domain-list.toml").unwrap();
     let config: Config = toml::from_str(&domain_list).unwrap();
     if name.is_empty() {
         // clean all domain projects
-        let all_members = config.domains.get("members").unwrap();
-        for domain_name in all_members {
+        let all_members = pick_domain_list(&config, "members");
+        for domain_name in &all_members {
             clean_one_domain(domain_name);
         }
         println!("Cleaning ELF");
