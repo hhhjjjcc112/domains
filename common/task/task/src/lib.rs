@@ -61,7 +61,7 @@ impl TaskDomain for TaskDomainImpl {
         Ok(())
     }
 
-    fn satp_with_trap_frame_virt_addr(&self) -> AlienResult<(usize, usize)> {
+    fn page_table_token_with_trap_frame_virt_addr(&self) -> AlienResult<(usize, usize)> {
         let task = current_task().unwrap();
         let addr = task.trap_frame_virt_ptr();
         let token = task.token();

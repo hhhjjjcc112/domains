@@ -100,8 +100,8 @@ impl PLICDomain for PLICDomainImpl {
 
     fn handle_irq(&self) -> AlienResult<()> {
         let plic = PLIC.get().unwrap();
-        let hart_id = arch::hart_id();
-        let irq = plic.claim(hart_id as u32, Mode::Supervisor) as usize;
+        let cpu_id = arch::cpu_id();
+        let irq = plic.claim(cpu_id as u32, Mode::Supervisor) as usize;
         let mut table = self.table.lock();
         let device_domain = table
             .get(&irq)
@@ -119,7 +119,7 @@ impl PLICDomain for PLICDomainImpl {
                 device.handle_irq()?;
             }
         }
-        plic.complete(hart_id as u32, Mode::Supervisor, irq as u32);
+        plic.complete(cpu_id as u32, Mode::Supervisor, irq as u32);
         *self
             .count
             .lock()
@@ -130,17 +130,17 @@ impl PLICDomain for PLICDomainImpl {
     }
 
     fn register_irq(&self, irq: usize, device_domain_name: &DVec<u8>) -> AlienResult<()> {
-        let hard_id = arch::hart_id();
+        let cpu_id = arch::cpu_id();
         println!(
             "PLIC enable irq {} for hart {}, priority {}",
-            irq, hard_id, 1
+            irq, cpu_id, 1
         );
         let plic = PLIC.get().unwrap();
-        plic.set_threshold(hard_id as u32, Mode::Machine, 1);
-        plic.set_threshold(hard_id as u32, Mode::Supervisor, 0);
-        plic.complete(hard_id as u32, Mode::Supervisor, irq as u32);
+        plic.set_threshold(cpu_id as u32, Mode::Machine, 1);
+        plic.set_threshold(cpu_id as u32, Mode::Supervisor, 0);
+        plic.complete(cpu_id as u32, Mode::Supervisor, irq as u32);
         plic.set_priority(irq as u32, 1);
-        plic.enable(hard_id as u32, Mode::Supervisor, irq as u32);
+        plic.enable(cpu_id as u32, Mode::Supervisor, irq as u32);
         let mut table = self.table.lock();
         let device_domain_name = core::str::from_utf8(device_domain_name.as_slice()).unwrap();
         let domain = DeviceDomain::Name(device_domain_name.to_string());

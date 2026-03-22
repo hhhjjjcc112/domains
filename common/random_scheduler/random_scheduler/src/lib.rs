@@ -5,7 +5,7 @@ extern crate alloc;
 use alloc::{boxed::Box, collections::VecDeque, sync::Arc};
 use core::sync::atomic::AtomicBool;
 
-use basic::{arch::hart_id, println, sync::Mutex};
+use basic::{arch::cpu_id, println, sync::Mutex};
 use common_scheduler::{CommonSchedulerDomain, Scheduler, UnwindWrap};
 use interface::SchedulerDomain;
 use shared_heap::DBox;
@@ -42,13 +42,13 @@ impl Scheduler for RandomScheduler {
     }
 
     fn fetch_task(&self) -> Option<DBox<TaskSchedulingInfo>> {
-        let hart_id = hart_id();
+        let cpu_id = cpu_id();
         let mut tasks = self.tasks.lock();
         let mut max_nice = i8::MAX;
         let mut res = None;
         // find the task with the highest priority, it's nice is the smallest
         for (idx, info) in tasks.iter().enumerate() {
-            if info.cpus_allowed & (1 << hart_id) != 0 && info.nice < max_nice {
+            if info.cpus_allowed & (1 << cpu_id) != 0 && info.nice < max_nice {
                 max_nice = info.nice;
                 res = Some(idx);
             }
