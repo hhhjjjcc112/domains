@@ -1,0 +1,9 @@
+[package]
+name = "apic"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+interface = { path = "../../../../domain-lib/interface" }
+shared_heap = { path = "../../../../domain-lib/shared_heap" }
+basic = { path = "../../../../domain-lib/basic" }

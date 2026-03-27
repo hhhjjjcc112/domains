@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "apic",
+	"gapic",
+]
+
+resolver = "2"

@@ -177,6 +177,7 @@ fn domain_type_from_str(name: &str) -> Option<DomainTypeRaw> {
         "NetDeviceDomain" => Some(DomainTypeRaw::NetDeviceDomain),
         "BufInputDomain" => Some(DomainTypeRaw::BufInputDomain),
         "EmptyDeviceDomain" => Some(DomainTypeRaw::EmptyDeviceDomain),
+        "APICDomain" => Some(DomainTypeRaw::APICDomain),
         "DevFsDomain" => Some(DomainTypeRaw::DevFsDomain),
         "SchedulerDomain" => Some(DomainTypeRaw::SchedulerDomain),
         "LogDomain" => Some(DomainTypeRaw::LogDomain),
