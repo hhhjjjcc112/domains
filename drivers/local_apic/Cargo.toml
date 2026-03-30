@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "local_apic",
+    "glocal_apic",
+]
+
+resolver = "2"

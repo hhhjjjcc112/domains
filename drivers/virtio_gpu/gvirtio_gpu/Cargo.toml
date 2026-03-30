@@ -1,0 +1,21 @@
+[package]
+name = "gvirtio_gpu"
+version = "0.1.0"
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+malloc = { path = "../../../../domain-lib/malloc" }
+corelib = { path = "../../../../domain-lib/corelib" }
+basic = { path = "../../../../domain-lib/basic" }
+shared_heap = { path = "../../../../domain-lib/shared_heap" }
+interface = { path = "../../../../domain-lib/interface",  features = ["domain"]  }
+storage = { path = "../../../../domain-lib/storage", features = ["impl"] }
+
+virtio_gpu = { path = "../virtio_gpu" }
+
+
+[features]
+default = ["rust-unwind"]
+rust-unwind = []

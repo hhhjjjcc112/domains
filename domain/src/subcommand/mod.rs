@@ -32,7 +32,29 @@ pub fn current_platform_kind() -> String {
     }
 }
 
+pub fn current_domain_profile() -> Option<String> {
+    env::var("DOMAIN_PROFILE")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 pub fn pick_domain_list(config: &Config, base_key: &str) -> Vec<String> {
+    if let Some(profile) = current_domain_profile() {
+        let platform_profile_key = format!("{}_{}_{}", base_key, current_platform_kind(), profile);
+        if let Some(list) = config.domains.get(&platform_profile_key) {
+            return list.clone();
+        }
+        let arch_profile_key = format!("{}_{}_{}", base_key, current_arch_kind(), profile);
+        if let Some(list) = config.domains.get(&arch_profile_key) {
+            return list.clone();
+        }
+        let profile_key = format!("{}_{}", base_key, profile);
+        if let Some(list) = config.domains.get(&profile_key) {
+            return list.clone();
+        }
+    }
+
     let platform_key = format!("{}_{}", base_key, current_platform_kind());
     if let Some(list) = config.domains.get(&platform_key) {
         return list.clone();

@@ -6,7 +6,9 @@ use alloc::boxed::Box;
 use core::fmt::Debug;
 
 use basic::AlienResult;
-use interface::{define_unwind_for_EmptyDeviceDomain, Basic, EmptyDeviceDomain};
+#[cfg(target_arch = "riscv64")]
+use interface::define_unwind_for_EmptyDeviceDomain;
+use interface::{Basic, EmptyDeviceDomain};
 use shared_heap::DVec;
 
 #[derive(Debug)]
@@ -33,8 +35,16 @@ impl EmptyDeviceDomain for IoApicDomainImpl {
     }
 }
 
+#[cfg(target_arch = "riscv64")]
 define_unwind_for_EmptyDeviceDomain!(IoApicDomainImpl);
 
 pub fn main() -> Box<dyn EmptyDeviceDomain> {
-    Box::new(UnwindWrap::new(IoApicDomainImpl))
+    #[cfg(target_arch = "riscv64")]
+    {
+        Box::new(UnwindWrap::new(IoApicDomainImpl))
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        Box::new(IoApicDomainImpl)
+    }
 }

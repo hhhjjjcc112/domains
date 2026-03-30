@@ -9,8 +9,8 @@ use core::panic::PanicInfo;
 
 use basic::domain_main;
 use corelib::CoreFunction;
-use interface::EmptyDeviceDomain;
-use shared_heap::{domain_id, SharedHeapAlloc};
+use interface::{Basic, EmptyDeviceDomain};
+use shared_heap::{DVec, SharedHeapAlloc};
 use storage::StorageArg;
 
 #[domain_main]
@@ -27,5 +27,42 @@ fn main(
     storage::init_database(storage);
     storage::init_data_allocator(allocator);
     interface::activate_domain();
+    domain_entry()
+}
+
+#[cfg(target_arch = "riscv64")]
+fn domain_entry() -> Box<dyn EmptyDeviceDomain> {
     local_apic::main()
+}
+
+#[cfg(target_arch = "x86_64")]
+fn domain_entry() -> Box<dyn EmptyDeviceDomain> {
+    Box::new(LocalApicStub)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[derive(Debug, Default)]
+struct LocalApicStub;
+
+#[cfg(target_arch = "x86_64")]
+impl Basic for LocalApicStub {
+    fn domain_id(&self) -> u64 {
+        shared_heap::domain_id()
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+impl EmptyDeviceDomain for LocalApicStub {
+    fn init(&self) -> basic::AlienResult<()> {
+        Ok(())
+    }
+
+    fn read(&self, mut data: DVec<u8>) -> basic::AlienResult<DVec<u8>> {
+        data.as_mut_slice().fill(0);
+        Ok(data)
+    }
+
+    fn write(&self, data: &DVec<u8>) -> basic::AlienResult<usize> {
+        Ok(data.len())
+    }
 }

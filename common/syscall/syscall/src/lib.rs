@@ -15,7 +15,7 @@ extern crate log;
 
 use alloc::{boxed::Box, format, sync::Arc, vec, vec::Vec};
 
-use basic::{constants::*, println, AlienResult};
+use basic::{constants::*, println, AlienError, AlienResult};
 use interface::*;
 use shared_heap::DVec;
 
@@ -26,7 +26,7 @@ struct SysCallDomainImpl {
     vfs_domain: Arc<dyn VfsDomain>,
     task_domain: Arc<dyn TaskDomain>,
     logger: Arc<dyn LogDomain>,
-    net_stack_domain: Arc<dyn NetDomain>,
+    net_stack_domain: Option<Arc<dyn NetDomain>>,
     gpu_domain: Option<Arc<dyn GpuDomain>>,
     input_domain: Vec<Arc<dyn BufInputDomain>>,
 }
@@ -36,7 +36,7 @@ impl SysCallDomainImpl {
         vfs_domain: Arc<dyn VfsDomain>,
         task_domain: Arc<dyn TaskDomain>,
         logger: Arc<dyn LogDomain>,
-        net_stack_domain: Arc<dyn NetDomain>,
+        net_stack_domain: Option<Arc<dyn NetDomain>>,
         gpu_domain: Option<Arc<dyn GpuDomain>>,
         input_domain: Vec<Arc<dyn BufInputDomain>>,
     ) -> Self {
@@ -48,6 +48,12 @@ impl SysCallDomainImpl {
             gpu_domain,
             input_domain,
         }
+    }
+
+    fn net_stack_domain(&self) -> AlienResult<&Arc<dyn NetDomain>> {
+        self.net_stack_domain
+            .as_ref()
+            .ok_or(AlienError::ENOSYS)
     }
 }
 
@@ -269,101 +275,140 @@ impl SysCallDomain for SysCallDomainImpl {
             SYSCALL_GETGID => sys_get_gid(&self.task_domain),
             SYSCALL_GETEGID => sys_get_egid(&self.task_domain),
             SYSCALL_GETTID => sys_get_tid(),
-            SYSCALL_SOCKET => sys_socket(
-                &self.task_domain,
-                &self.vfs_domain,
-                &self.net_stack_domain,
-                args[0],
-                args[1],
-                args[2],
-            ),
-            199 => sys_socket_pair(
-                &self.task_domain,
-                &self.vfs_domain,
-                &self.net_stack_domain,
-                args[0],
-                args[1],
-                args[2],
-                args[3],
-            ),
-            SYSCALL_BIND => sys_bind(
-                &self.task_domain,
-                &self.vfs_domain,
-                &self.net_stack_domain,
-                args[0],
-                args[1],
-                args[2],
-            ),
-            SYSCALL_LISTEN => sys_listen(
-                &self.task_domain,
-                &self.vfs_domain,
-                &self.net_stack_domain,
-                args[0],
-                args[1],
-            ),
-            SYSCALL_ACCEPT => sys_accept(
-                &self.task_domain,
-                &self.vfs_domain,
-                &self.net_stack_domain,
-                args[0],
-                args[1],
-                args[2],
-            ),
-            SYSCALL_CONNECT => sys_connect(
-                &self.task_domain,
-                &self.vfs_domain,
-                &self.net_stack_domain,
-                args[0],
-                args[1],
-                args[2],
-            ),
-            SYSCALL_GETSOCKNAME => sys_getsockname(
-                &self.task_domain,
-                &self.vfs_domain,
-                &self.net_stack_domain,
-                args[0],
-                args[1],
-                args[2],
-            ),
-            SYSCALL_GETPEERNAME => sys_getpeername(
-                &self.task_domain,
-                &self.vfs_domain,
-                &self.net_stack_domain,
-                args[0],
-                args[1],
-                args[2],
-            ),
-            SYSCALL_SENDTO => sys_sendto(
-                &self.task_domain,
-                &self.vfs_domain,
-                &self.net_stack_domain,
-                [args[0], args[1], args[2], args[3], args[4], args[5]],
-            ),
-            SYSCALL_RECVFROM => sys_recvfrom(
-                &self.task_domain,
-                &self.vfs_domain,
-                &self.net_stack_domain,
-                [args[0], args[1], args[2], args[3], args[4], args[5]],
-            ),
-            SYSCALL_SETSOCKOPT => sys_set_socket_opt(
-                &self.task_domain,
-                &self.vfs_domain,
-                &self.net_stack_domain,
-                [args[0], args[1], args[2], args[3], args[4]],
-            ),
-            SYSCALL_GETSOCKOPT => sys_get_socket_opt(
-                &self.task_domain,
-                &self.vfs_domain,
-                &self.net_stack_domain,
-                [args[0], args[1], args[2], args[3], args[4]],
-            ),
-            SYSCALL_SHUTDOWN => sys_shutdown(
-                &self.task_domain,
-                &self.vfs_domain,
-                &self.net_stack_domain,
-                args[0],
-                args[1],
-            ),
+            SYSCALL_SOCKET => {
+                let net_stack_domain = self.net_stack_domain()?;
+                sys_socket(
+                    &self.task_domain,
+                    &self.vfs_domain,
+                    net_stack_domain,
+                    args[0],
+                    args[1],
+                    args[2],
+                )
+            }
+            199 => {
+                let net_stack_domain = self.net_stack_domain()?;
+                sys_socket_pair(
+                    &self.task_domain,
+                    &self.vfs_domain,
+                    net_stack_domain,
+                    args[0],
+                    args[1],
+                    args[2],
+                    args[3],
+                )
+            }
+            SYSCALL_BIND => {
+                let net_stack_domain = self.net_stack_domain()?;
+                sys_bind(
+                    &self.task_domain,
+                    &self.vfs_domain,
+                    net_stack_domain,
+                    args[0],
+                    args[1],
+                    args[2],
+                )
+            }
+            SYSCALL_LISTEN => {
+                let net_stack_domain = self.net_stack_domain()?;
+                sys_listen(
+                    &self.task_domain,
+                    &self.vfs_domain,
+                    net_stack_domain,
+                    args[0],
+                    args[1],
+                )
+            }
+            SYSCALL_ACCEPT => {
+                let net_stack_domain = self.net_stack_domain()?;
+                sys_accept(
+                    &self.task_domain,
+                    &self.vfs_domain,
+                    net_stack_domain,
+                    args[0],
+                    args[1],
+                    args[2],
+                )
+            }
+            SYSCALL_CONNECT => {
+                let net_stack_domain = self.net_stack_domain()?;
+                sys_connect(
+                    &self.task_domain,
+                    &self.vfs_domain,
+                    net_stack_domain,
+                    args[0],
+                    args[1],
+                    args[2],
+                )
+            }
+            SYSCALL_GETSOCKNAME => {
+                let net_stack_domain = self.net_stack_domain()?;
+                sys_getsockname(
+                    &self.task_domain,
+                    &self.vfs_domain,
+                    net_stack_domain,
+                    args[0],
+                    args[1],
+                    args[2],
+                )
+            }
+            SYSCALL_GETPEERNAME => {
+                let net_stack_domain = self.net_stack_domain()?;
+                sys_getpeername(
+                    &self.task_domain,
+                    &self.vfs_domain,
+                    net_stack_domain,
+                    args[0],
+                    args[1],
+                    args[2],
+                )
+            }
+            SYSCALL_SENDTO => {
+                let net_stack_domain = self.net_stack_domain()?;
+                sys_sendto(
+                    &self.task_domain,
+                    &self.vfs_domain,
+                    net_stack_domain,
+                    [args[0], args[1], args[2], args[3], args[4], args[5]],
+                )
+            }
+            SYSCALL_RECVFROM => {
+                let net_stack_domain = self.net_stack_domain()?;
+                sys_recvfrom(
+                    &self.task_domain,
+                    &self.vfs_domain,
+                    net_stack_domain,
+                    [args[0], args[1], args[2], args[3], args[4], args[5]],
+                )
+            }
+            SYSCALL_SETSOCKOPT => {
+                let net_stack_domain = self.net_stack_domain()?;
+                sys_set_socket_opt(
+                    &self.task_domain,
+                    &self.vfs_domain,
+                    net_stack_domain,
+                    [args[0], args[1], args[2], args[3], args[4]],
+                )
+            }
+            SYSCALL_GETSOCKOPT => {
+                let net_stack_domain = self.net_stack_domain()?;
+                sys_get_socket_opt(
+                    &self.task_domain,
+                    &self.vfs_domain,
+                    net_stack_domain,
+                    [args[0], args[1], args[2], args[3], args[4]],
+                )
+            }
+            SYSCALL_SHUTDOWN => {
+                let net_stack_domain = self.net_stack_domain()?;
+                sys_shutdown(
+                    &self.task_domain,
+                    &self.vfs_domain,
+                    net_stack_domain,
+                    args[0],
+                    args[1],
+                )
+            }
             SYSCALL_BRK => sys_brk(&self.vfs_domain, &self.task_domain, args[0]),
             SYSCALL_MUNMAP => sys_unmap(&self.task_domain, args[0], args[1]),
             SYSCALL_CLONE => sys_clone(
@@ -446,17 +491,30 @@ pub fn main() -> Box<dyn SysCallDomain> {
         _ => panic!("logger domain not found"),
     };
 
-    let net_stack_domain = basic::get_domain("net_stack").unwrap();
-    let net_stack_domain = match net_stack_domain {
-        DomainType::NetDomain(net_stack_domain) => net_stack_domain,
-        _ => panic!("net_stack domain not found"),
+    let net_stack_domain = match basic::get_domain("net_stack") {
+        Some(DomainType::NetDomain(net_stack_domain)) => Some(net_stack_domain),
+        Some(_) => {
+            log::warn!("net_stack domain type mismatch, skip");
+            None
+        }
+        None => {
+            log::warn!("net_stack domain not found, skip");
+            None
+        }
     };
 
-    let gpu_domain = basic::get_domain("virtio_mmio_gpu");
-    let gpu_domain = match gpu_domain {
-        Some(DomainType::GpuDomain(gpu_domain)) => Some(gpu_domain),
-        _ => None,
-    };
+    let mut gpu_domain = None;
+    for name in [
+        "gpu",
+        "gpu-1",
+        "virtio_gpu-1",
+        "virtio_gpu",
+    ] {
+        if let Some(DomainType::GpuDomain(domain)) = basic::get_domain(name) {
+            gpu_domain = Some(domain);
+            break;
+        }
+    }
 
     let mut input_domains = vec![];
     let mut count = 1;

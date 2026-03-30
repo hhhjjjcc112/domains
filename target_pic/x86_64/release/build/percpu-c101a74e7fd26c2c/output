@@ -1,0 +1,2 @@
+cargo:rustc-link-arg-tests=-no-pie
+cargo:rustc-link-arg-tests=-T/home/hjch/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/percpu-0.3.1/test_percpu.x

@@ -79,6 +79,15 @@ pub fn read_all(file_name: &str, buf: &mut Vec<u8>) -> bool {
     let mut res;
     while offset < size {
         (tmp, res) = shim_file.read_at(offset, tmp).unwrap();
+        if res == 0 {
+            log::warn!(
+                "read_all short read: file={}, offset={}, size={}",
+                file_name,
+                offset,
+                size
+            );
+            return false;
+        }
         offset += res as u64;
         buf.extend_from_slice(&tmp.as_slice()[..res]);
     }

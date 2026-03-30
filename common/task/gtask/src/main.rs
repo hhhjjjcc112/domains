@@ -4,13 +4,14 @@
 #![allow(internal_features)]
 extern crate alloc;
 extern crate malloc;
+
 use alloc::boxed::Box;
 use core::panic::PanicInfo;
 
 use basic::domain_main;
 use corelib::CoreFunction;
 use interface::TaskDomain;
-use shared_heap::{domain_id, SharedHeapAlloc};
+use shared_heap::SharedHeapAlloc;
 use storage::StorageArg;
 
 #[domain_main]
@@ -31,6 +32,5 @@ fn main(
     storage::init_data_allocator(allocator);
     // activate the domain
     interface::activate_domain();
-    // call the real blk driver
     task::main()
 }

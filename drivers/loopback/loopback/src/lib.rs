@@ -2,10 +2,10 @@
 #![forbid(unsafe_code)]
 extern crate alloc;
 use alloc::{boxed::Box, collections::VecDeque};
-use core::{fmt::Debug, ops::Range};
+use core::fmt::Debug;
 
 use basic::{sync::Mutex, AlienResult};
-use interface::{define_unwind_for_NetDeviceDomain, Basic, DeviceBase, NetDeviceDomain};
+use interface::{define_unwind_for_NetDeviceDomain, Basic, DeviceBase, NetDeviceDomain, VirtioInitInfo};
 use shared_heap::DVec;
 
 #[derive(Debug)]
@@ -42,7 +42,7 @@ impl Basic for LoopBackNetDevice {
 }
 
 impl NetDeviceDomain for LoopBackNetDevice {
-    fn init(&self, _device_info: &Range<usize>) -> AlienResult<()> {
+    fn init(&self, _device_info: &VirtioInitInfo) -> AlienResult<()> {
         Ok(())
     }
 

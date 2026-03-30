@@ -7,9 +7,19 @@ use crate::{kthread, processor::add_task, task::Task, vfs_shim::read_all};
 
 pub static INIT_PROCESS: Lazy<Arc<Task>> = Lazy::new(|| {
     let mut data = Vec::new();
-    read_all("/tests/init", &mut data);
+    #[cfg(target_arch = "x86_64")]
+    let mut init_path = "/bin/sh";
+    #[cfg(not(target_arch = "x86_64"))]
+    let mut init_path = "/tests/init";
+
+    if !read_all(init_path, &mut data) || data.is_empty() {
+        // 启动主程序缺失时回退到 busybox，保证可进入 shell。
+        init_path = "/bin/busybox";
+        data.clear();
+        read_all(init_path, &mut data);
+    }
     assert!(!data.is_empty());
-    let task = Task::from_elf("/tests/init", data.as_slice()).unwrap();
+    let task = Task::from_elf(init_path, data.as_slice()).unwrap();
     Arc::new(task)
 });
 

@@ -1,10 +1,11 @@
 mod id;
 
 use alloc::sync::Arc;
+use alloc::{string::String, string::ToString};
 
 use basic::println;
 use id::alloc_device_id;
-use interface::DevFsDomain;
+use interface::{DevFsDomain, DomainType};
 use shared_heap::DVec;
 use vfscore::{dentry::VfsDentry, utils::VfsNodeType};
 
@@ -80,9 +81,14 @@ pub fn scan_system_devices(devfs_domain: &Arc<dyn DevFsDomain>, root_dt: &Arc<dy
     let root = root_dt.inode().unwrap();
 
     let uart = basic::get_domain("buf_uart"); // unique name
-    let gpu = basic::get_domain("virtio_mmio_gpu-1");
-    let mouse = basic::get_domain("virtio_mmio_input-1");
-    let keyboard = basic::get_domain("virtio_mmio_input-2");
+    let gpu = find_domain_name(&[
+        "gpu",
+        "gpu-1",
+        "virtio_gpu-1",
+        "virtio_gpu",
+    ]);
+    let mouse = find_domain_name(&["mouse", "buf_input-2", "buf_input-1"]);
+    let keyboard = find_domain_name(&["keyboard", "buf_input-1", "buf_input-2"]);
     let blk = basic::get_domain("cache_blk-1");
     #[cfg(target_arch = "riscv64")]
     let rtc = basic::get_domain("goldfish"); // unique name
@@ -107,13 +113,13 @@ pub fn scan_system_devices(devfs_domain: &Arc<dyn DevFsDomain>, root_dt: &Arc<dy
     }
 
     match gpu {
-        Some(_) => {
+        Some(gpu_name) => {
             let gpu_id = alloc_device_id(VfsNodeType::CharDevice);
             devfs_domain
-                .register(gpu_id.id(), &DVec::from_slice(b"virtio_mmio_gpu-1"))
+                .register(gpu_id.id(), &DVec::from_slice(gpu_name.as_bytes()))
                 .unwrap();
             root.create(
-                "virtio-mmio-gpu",
+                "gpu",
                 VfsNodeType::CharDevice,
                 "rw-rw----".into(),
                 Some(gpu_id.id()),
@@ -126,10 +132,10 @@ pub fn scan_system_devices(devfs_domain: &Arc<dyn DevFsDomain>, root_dt: &Arc<dy
     }
 
     match mouse {
-        Some(_) => {
+        Some(mouse_name) => {
             let mouse_id = alloc_device_id(VfsNodeType::CharDevice);
             devfs_domain
-                .register(mouse_id.id(), &DVec::from_slice(b"virtio_mmio_input-1"))
+                .register(mouse_id.id(), &DVec::from_slice(mouse_name.as_bytes()))
                 .unwrap();
             root.create(
                 "mouse",
@@ -145,10 +151,10 @@ pub fn scan_system_devices(devfs_domain: &Arc<dyn DevFsDomain>, root_dt: &Arc<dy
     }
 
     match keyboard {
-        Some(_) => {
+        Some(keyboard_name) => {
             let keyboard_id = alloc_device_id(VfsNodeType::CharDevice);
             devfs_domain
-                .register(keyboard_id.id(), &DVec::from_slice(b"virtio_mmio_input-2"))
+                .register(keyboard_id.id(), &DVec::from_slice(keyboard_name.as_bytes()))
                 .unwrap();
             root.create(
                 "keyboard",
@@ -199,4 +205,16 @@ pub fn scan_system_devices(devfs_domain: &Arc<dyn DevFsDomain>, root_dt: &Arc<dy
             println!("rtc domain not found");
         }
     };
+}
+
+fn find_domain_name(candidates: &[&str]) -> Option<String> {
+    for name in candidates {
+        match basic::get_domain(name) {
+            Some(DomainType::GpuDomain(_)) | Some(DomainType::BufInputDomain(_)) => {
+                return Some((*name).to_string());
+            }
+            _ => {}
+        }
+    }
+    None
 }

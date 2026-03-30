@@ -2,10 +2,10 @@
 #![forbid(unsafe_code)]
 extern crate alloc;
 use alloc::boxed::Box;
-use core::{cmp::min, ops::Range};
+use core::cmp::min;
 
 use basic::{io::SafeIORegion, println, sync::Mutex, AlienError, AlienResult};
-use interface::{define_unwind_for_BlkDeviceDomain, Basic, BlkDeviceDomain, DeviceBase};
+use interface::{define_unwind_for_BlkDeviceDomain, Basic, BlkDeviceDomain, DeviceBase, VirtioInitInfo};
 use shared_heap::DVec;
 
 #[derive(Debug)]
@@ -71,10 +71,12 @@ impl Basic for MemoryImg {
 }
 
 impl BlkDeviceDomain for MemoryImg {
-    fn init(&self, device_info: &Range<usize>) -> AlienResult<()> {
-        let region = device_info;
+    fn init(&self, device_info: &VirtioInitInfo) -> AlienResult<()> {
+        let region = device_info
+            .mmio_range()
+            .expect("mem_block init requires mmio range");
         println!("mem block: {:#x}-{:#x}", region.start, region.end);
-        let io_region = SafeIORegion::from(device_info.clone());
+        let io_region = SafeIORegion::from(region.clone());
         *self.data.lock() = io_region;
         Ok(())
     }

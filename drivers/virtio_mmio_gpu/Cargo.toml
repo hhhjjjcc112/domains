@@ -1,7 +1,0 @@
-[workspace]
-members = [
-    "virtio_mmio_gpu",
-	"gvirtio_mmio_gpu",
-]
-
-resolver = "2"

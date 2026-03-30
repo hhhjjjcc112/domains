@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "virtio_net",
+	"gvirtio_net",
+]
+
+resolver = "2"

@@ -12,7 +12,6 @@ basic = { path = "../../../../domain-lib/basic" }
 shared_heap = { path = "../../../../domain-lib/shared_heap" }
 interface = { path = "../../../../domain-lib/interface",  features = ["domain"]  }
 storage = { path = "../../../../domain-lib/storage", features = ["impl"] }
-
 task = { path = "../task" }
 
 [features]

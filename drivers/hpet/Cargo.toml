@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "hpet",
+    "ghpet",
+]
+
+resolver = "2"

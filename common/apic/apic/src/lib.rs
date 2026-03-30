@@ -3,18 +3,35 @@
 
 extern crate alloc;
 
-use alloc::{boxed::Box, collections::BTreeMap, format, string::{String, ToString}, sync::Arc};
-use core::{cmp::min, fmt::{Debug, Formatter}};
+use alloc::boxed::Box;
+#[cfg(target_arch = "riscv64")]
+use alloc::{
+    collections::BTreeMap,
+    format,
+    string::{String, ToString},
+    sync::Arc,
+};
+#[cfg(target_arch = "riscv64")]
+use core::{
+    cmp::min,
+    fmt::{Debug, Formatter},
+};
 
-use basic::{println, sync::Mutex, AlienResult};
-use interface::{define_unwind_for_APICDomain, APICDomain, Basic, DeviceBase};
+#[cfg(target_arch = "riscv64")]
+use basic::sync::Mutex;
+use basic::{println, AlienResult};
+#[cfg(target_arch = "riscv64")]
+use interface::define_unwind_for_APICDomain;
+use interface::{APICDomain, Basic, DeviceBase};
 use shared_heap::DVec;
 
+#[cfg(target_arch = "riscv64")]
 enum DeviceDomain {
     Name(String),
     Domain(Arc<dyn DeviceBase>),
 }
 
+#[cfg(target_arch = "riscv64")]
 impl Debug for DeviceDomain {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -24,11 +41,16 @@ impl Debug for DeviceDomain {
     }
 }
 
+#[cfg(target_arch = "riscv64")]
 #[derive(Debug, Default)]
 pub struct APICDomainImpl {
     table: Mutex<BTreeMap<usize, DeviceDomain>>,
     count: Mutex<BTreeMap<usize, usize>>,
 }
+
+#[cfg(target_arch = "x86_64")]
+#[derive(Debug, Default)]
+pub struct APICDomainImpl;
 
 impl Basic for APICDomainImpl {
     fn domain_id(&self) -> u64 {
@@ -36,6 +58,7 @@ impl Basic for APICDomainImpl {
     }
 }
 
+#[cfg(target_arch = "riscv64")]
 impl APICDomain for APICDomainImpl {
     fn init(&self) -> AlienResult<()> {
         println!("APIC domain init");
@@ -91,8 +114,36 @@ impl APICDomain for APICDomainImpl {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
+impl APICDomain for APICDomainImpl {
+    fn init(&self) -> AlienResult<()> {
+        println!("APIC domain init (x86 stub)");
+        Ok(())
+    }
+
+    fn handle_irq(&self, _irq: usize) -> AlienResult<()> {
+        Ok(())
+    }
+
+    fn register_irq(&self, _irq: usize, _device_domain_name: &DVec<u8>) -> AlienResult<()> {
+        Ok(())
+    }
+
+    fn irq_info(&self, buf: DVec<u8>) -> AlienResult<DVec<u8>> {
+        Ok(buf)
+    }
+}
+
+#[cfg(target_arch = "riscv64")]
 define_unwind_for_APICDomain!(APICDomainImpl);
 
 pub fn main() -> Box<dyn APICDomain> {
-    Box::new(UnwindWrap::new(APICDomainImpl::default()))
+    #[cfg(target_arch = "riscv64")]
+    {
+        Box::new(UnwindWrap::new(APICDomainImpl::default()))
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        Box::new(APICDomainImpl::default())
+    }
 }

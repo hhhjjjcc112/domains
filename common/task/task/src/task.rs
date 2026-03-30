@@ -254,7 +254,8 @@ impl Task {
     pub fn from_elf(name: &str, elf: &[u8]) -> Option<Task> {
         let tid = Arc::new(TidHandle::new()?);
         let pid = tid.clone();
-        let mut args = vec![];
+        // 保证用户态至少有 argv[0]，与 execve 语义一致。
+        let mut args = vec![name.to_string()];
         let elf_info = build_vm_space(elf, &mut args, "init");
         if elf_info.is_err() {
             return None;
@@ -316,7 +317,9 @@ impl Task {
             name.to_string(),
         );
 
-        let context = TaskContext::new_user(VirtAddr::from(0));
+        let mut context = TaskContext::new_user(VirtAddr::from(0));
+        #[cfg(target_arch = "x86_64")]
+        context.set_fs_base(elf_info.tls);
 
         let task_basic_info = TaskBasicInfo::new(task.tid.raw(), context);
         let scheduling_info = TaskSchedulingInfo::new(task.tid.raw(), 0, 1 << cpu_id());

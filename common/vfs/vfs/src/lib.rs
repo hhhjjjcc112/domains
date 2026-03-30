@@ -109,12 +109,17 @@ impl VfsDomain for VfsDomainImpl {
     fn init(&self, initrd: &[u8]) -> AlienResult<()> {
         let is_init_done = VFS_INIT.load(core::sync::atomic::Ordering::SeqCst);
         tree::init_filesystem(initrd, is_init_done).unwrap();
-        let net_stack_domain = basic::get_domain("net_stack").unwrap();
-        match net_stack_domain {
-            DomainType::NetDomain(net_stack_domain) => {
-                NET_STACK_DOMAIN.call_once(|| net_stack_domain);
+        if let Some(net_stack_domain) = basic::get_domain("net_stack") {
+            match net_stack_domain {
+                DomainType::NetDomain(net_stack_domain) => {
+                    NET_STACK_DOMAIN.call_once(|| net_stack_domain);
+                }
+                _ => {
+                    log::warn!("net_stack domain type mismatch, skip");
+                }
             }
-            _ => panic!("net_stack domain not found"),
+        } else {
+            log::warn!("net_stack domain not found, skip");
         };
         VFS_INIT.store(true, core::sync::atomic::Ordering::SeqCst);
         println!("vfs init success");

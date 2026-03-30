@@ -12,7 +12,11 @@ use core::{
 
 use basic::{config::*, vm::frame::FrameTracker, AlienError, AlienResult};
 use memory_addr::{PhysAddr, VirtAddr};
-use page_table::{MappingFlags, NotLeafPage, PagingIf, Rv64PTE};
+use page_table::{MappingFlags, NotLeafPage, PagingIf};
+#[cfg(target_arch = "riscv64")]
+use page_table::Rv64PTE as ArchPTE;
+#[cfg(target_arch = "x86_64")]
+use page_table::X64PTE as ArchPTE;
 use ptable::*;
 use xmas_elf::{
     program::{SegmentData, Type},
@@ -25,7 +29,7 @@ use crate::vfs_shim;
 
 #[derive(Debug)]
 pub struct FrameTrackerWrapper(pub(crate) FrameTracker);
-impl NotLeafPage<Rv64PTE> for FrameTrackerWrapper {
+impl NotLeafPage<ArchPTE> for FrameTrackerWrapper {
     fn phys_addr(&self) -> PhysAddr {
         self.0.start_phy_addr()
     }
@@ -38,11 +42,11 @@ impl NotLeafPage<Rv64PTE> for FrameTrackerWrapper {
         self.0.clear();
     }
 
-    fn as_pte_slice<'a>(&self) -> &'a [Rv64PTE] {
+    fn as_pte_slice<'a>(&self) -> &'a [ArchPTE] {
         self.0.as_slice_with(0)
     }
 
-    fn as_pte_mut_slice<'a>(&self) -> &'a mut [Rv64PTE] {
+    fn as_pte_mut_slice<'a>(&self) -> &'a mut [ArchPTE] {
         self.0.as_mut_slice_with(0)
     }
 }
@@ -92,8 +96,8 @@ impl PhysPage for FrameTrackerWrapper {
 #[derive(Debug)]
 pub struct VmmPageAllocator;
 
-impl PagingIf<Rv64PTE> for VmmPageAllocator {
-    fn alloc_frame() -> Option<Box<dyn NotLeafPage<Rv64PTE>>> {
+impl PagingIf<ArchPTE> for VmmPageAllocator {
+    fn alloc_frame() -> Option<Box<dyn NotLeafPage<ArchPTE>>> {
         let frame = FrameTracker::new(1);
         Some(Box::new(FrameTrackerWrapper(frame)))
     }
@@ -328,7 +332,10 @@ pub fn build_vm_space(elf: &[u8], args: &mut Vec<String>, name: &str) -> AlienRe
             _ => return Err(AlienError::EINVAL),
         };
         let path = core::str::from_utf8(data).unwrap();
+        #[cfg(target_arch = "riscv64")]
         assert!(path.starts_with("/lib/ld-musl-riscv64"));
+        #[cfg(target_arch = "x86_64")]
+        assert!(path.starts_with("/lib/ld-musl-x86_64"));
         let mut new_args = vec!["/libc.so\0".to_string()];
         new_args.extend(args.clone());
         *args = new_args;

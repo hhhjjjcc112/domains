@@ -20,11 +20,19 @@ impl VirtIoDeviceIo for SafeIORW {
         self.0.read_at(off).map_err(|_| VirtIoError::IoError)
     }
 
+    fn read_volatile_u16_at(&self, off: usize) -> VirtIoResult<u16> {
+        self.0.read_at(off).map_err(|_| VirtIoError::IoError)
+    }
+
     fn read_volatile_u8_at(&self, off: usize) -> VirtIoResult<u8> {
         self.0.read_at(off).map_err(|_| VirtIoError::IoError)
     }
 
     fn write_volatile_u32_at(&self, off: usize, data: u32) -> VirtIoResult<()> {
+        self.0.write_at(off, data).map_err(|_| VirtIoError::IoError)
+    }
+
+    fn write_volatile_u16_at(&self, off: usize, data: u16) -> VirtIoResult<()> {
         self.0.write_at(off, data).map_err(|_| VirtIoError::IoError)
     }
 
@@ -52,12 +60,12 @@ impl DevicePage for Page {
         self.0.as_slice_with(0)
     }
 
-    fn paddr(&self) -> VirtAddr {
-        self.0.start_virt_addr().as_usize()
+    fn paddr(&self) -> PhysAddr {
+        self.0.start_phy_addr().as_usize()
     }
 
-    fn vaddr(&self) -> PhysAddr {
-        self.0.start_phy_addr().as_usize()
+    fn vaddr(&self) -> VirtAddr {
+        self.0.start_virt_addr().as_usize()
     }
 }
 
@@ -82,18 +90,18 @@ pub struct HalImpl;
 impl<const SIZE: usize> Hal<SIZE> for HalImpl {
     fn dma_alloc(pages: usize) -> Box<dyn QueuePage<SIZE>> {
         let frame = FrameTracker::new(pages);
+        frame.clear();
         Box::new(Page(frame))
     }
 
     fn dma_alloc_buf(pages: usize) -> Box<dyn DevicePage> {
         let frame = FrameTracker::new(pages);
+        frame.clear();
         Box::new(Page(frame))
     }
 
     fn to_paddr(va: usize) -> usize {
-        // basic::println_color!(31,"<virtio hal> to_paddr: {:#x}", va);
-        // basic::vaddr_to_paddr_in_kernel(va).expect("vaddr_to_paddr_in_kernel failed")
-        va
+        basic::vaddr_to_paddr_in_kernel(va).unwrap_or(va)
     }
 }
 

@@ -4,19 +4,23 @@ domain = "run -p domain --"
 [target.riscv64]
 # --cfg getrandom_backend="linux_getrandom"
 rustflags = [
+    "-C", "relocation-model=pic",
     "-Clink-arg=-pie",
     "-A", "unused_imports",
     "--cfg", "getrandom_backend=\"custom\""
 ]
-linker = "riscv64-linux-musl-gcc"
+# 域镜像不依赖 libc，统一使用 lld 以减少宿主机工具链耦合。
+linker = "rust-lld"
 
 [target.x86_64]
 rustflags = [
+    "-C", "relocation-model=pic",
     "-Clink-arg=-pie",
     "-A", "unused_imports",
     "--cfg", "getrandom_backend=\"custom\""
 ]
-linker = "x86_64-linux-musl-gcc"
+# 域镜像不依赖 libc，统一使用 lld 以减少宿主机工具链耦合。
+linker = "rust-lld"
 
 [profile.release]
 lto = true

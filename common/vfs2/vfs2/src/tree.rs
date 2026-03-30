@@ -111,10 +111,12 @@ fn init_filesystem_before(initrd: &[u8]) -> VfsResult<Arc<dyn VfsDentry>> {
     let fatfs_domain = basic::get_domain("fatfs-1").unwrap();
     match fatfs_domain {
         DomainType::FsDomain(fatfs) => {
+            println!("fatfs mount begin: /tests");
             let blk_inode = path
                 .join("/dev/sda")?
                 .open(None)
                 .expect("open /dev/sda failed");
+            println!("fatfs 已打开块设备 /dev/sda");
             let _id = insert_dentry(blk_inode.clone(), OpenFlags::O_RDWR);
             let mp = DVec::from_slice(b"/tests");
             let blk_inode = blk_inode
@@ -136,6 +138,7 @@ fn init_filesystem_before(initrd: &[u8]) -> VfsResult<Arc<dyn VfsDentry>> {
             let shim_inode =
                 RootShimDentry::new(fatfs, root_inode_id, Arc::new(Vec::from("fatfs-1")));
             path.join("tests")?.mount(shim_inode, 0)?;
+            println!("fatfs mount success: /tests");
         }
         _ => panic!("fatfs domain not found"),
     }

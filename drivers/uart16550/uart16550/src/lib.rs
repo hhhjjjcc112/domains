@@ -11,7 +11,9 @@ use basic::{
     sync::{Once, OnceGet},
     AlienResult,
 };
-use interface::{define_unwind_for_UartDomain, Basic, DeviceBase, UartDomain};
+#[cfg(target_arch = "riscv64")]
+use interface::define_unwind_for_UartDomain;
+use interface::{Basic, DeviceBase, UartDomain};
 use raw_uart16550::{InterruptTypes, Uart16550, Uart16550IO};
 use shared_heap::DVec;
 
@@ -115,7 +117,15 @@ impl UartDomain for UartDomainImpl {
     }
 }
 
+#[cfg(target_arch = "riscv64")]
 define_unwind_for_UartDomain!(UartDomainImpl);
 pub fn main() -> Box<dyn UartDomain> {
-    Box::new(UnwindWrap::new(UartDomainImpl::default()))
+    #[cfg(target_arch = "riscv64")]
+    {
+        Box::new(UnwindWrap::new(UartDomainImpl::default()))
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        Box::new(UartDomainImpl::default())
+    }
 }

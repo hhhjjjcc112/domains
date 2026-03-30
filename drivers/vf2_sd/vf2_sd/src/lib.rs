@@ -10,10 +10,10 @@ mod ops;
 
 extern crate alloc;
 use alloc::boxed::Box;
-use core::{fmt::Debug, ops::Range};
+use core::fmt::Debug;
 
 use basic::{io::SafeIORegion, println, println_color, sync::Mutex, AlienResult};
-use interface::{define_unwind_for_BlkDeviceDomain, Basic, BlkDeviceDomain, DeviceBase};
+use interface::{define_unwind_for_BlkDeviceDomain, Basic, BlkDeviceDomain, DeviceBase, VirtioInitInfo};
 use shared_heap::{DBox, DVec};
 use visionfive2_sd::Vf2SdDriver;
 
@@ -51,10 +51,12 @@ impl Basic for Vf2SDCardDomain {
 }
 
 impl BlkDeviceDomain for Vf2SDCardDomain {
-    fn init(&self, device_info: &Range<usize>) -> AlienResult<()> {
-        let region = device_info;
+    fn init(&self, device_info: &VirtioInitInfo) -> AlienResult<()> {
+        let region = device_info
+            .mmio_range()
+            .expect("vf2_sd init requires mmio range");
         println!("sd card: {:#x}-{:#x}", region.start, region.end);
-        let io_region = SafeIORegion::from(device_info.clone());
+        let io_region = SafeIORegion::from(region.clone());
         // preprint::init_print(&PrePrint);
         let mut sd = Vf2SdDriver::new(SdIoImpl::new(io_region));
         sd.init();

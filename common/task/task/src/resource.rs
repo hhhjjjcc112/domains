@@ -162,7 +162,11 @@ impl UserStack {
         // padding
         self.push_bytes(&[0u8; 8], vm_space)?;
         // push platform and exec path
-        let platform = self.push_str("riscv", vm_space)?;
+        #[cfg(target_arch = "riscv64")]
+        let platform_str = "riscv";
+        #[cfg(target_arch = "x86_64")]
+        let platform_str = "x86_64";
+        let platform = self.push_str(platform_str, vm_space)?;
         let ex_path = self.push_str(&self.exec_path.clone(), vm_space)?;
         self.aux_vec.set(AT_PLATFORM, platform.as_usize() as _)?;
         self.aux_vec.set(AT_EXECFN, ex_path.as_usize() as _)?;
@@ -223,7 +227,10 @@ impl UserStack {
         data: &str,
         vm_space: &mut VmSpace<VmmPageAllocator>,
     ) -> AlienResult<VirtAddr> {
-        self.push_bytes(data.as_bytes(), vm_space)
+        let mut with_nul = Vec::with_capacity(data.len() + 1);
+        with_nul.extend_from_slice(data.as_bytes());
+        with_nul.push(0);
+        self.push_bytes(with_nul.as_slice(), vm_space)
     }
 
     fn push_bytes(
