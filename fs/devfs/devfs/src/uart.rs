@@ -51,28 +51,44 @@ impl UARTDevice {
 impl VfsFile for UARTDevice {
     fn read_at(&self, _offset: u64, mut _buf: DVec<u8>) -> VfsResult<(DVec<u8>, usize)> {
         let buf = _buf.as_mut_slice();
-        // read util \r and transform to \n
+        if buf.is_empty() {
+            return Ok((_buf, 0));
+        }
+
+        let echo_enabled = LocalModes::from_bits_truncate(self.io.lock().termios.lflag)
+            .contains(LocalModes::ECHO);
         let mut read_count = 0;
         loop {
-            let ch = self.device.getc().unwrap();
-            assert!(ch.is_some());
-            let ch = ch.unwrap();
-            buf[read_count] = ch;
-            read_count += 1;
-            if ch == b'\r' {
-                buf[read_count - 1] = b'\n';
-                if LocalModes::from_bits_truncate(self.io.lock().termios.lflag)
-                    .contains(LocalModes::ECHO)
-                {
-                    self.device.putc(b'\n').unwrap();
+            let ch = if read_count == 0 {
+                self.device.getc().unwrap()
+            } else {
+                if !self.device.have_data_to_get().unwrap() {
+                    break;
                 }
+                self.device.getc().unwrap()
+            };
+
+            let Some(ch) = ch else {
+                if read_count > 0 {
+                    break;
+                }
+                continue;
+            };
+
+            let is_newline = ch == b'\r' || ch == b'\n';
+            let out = if ch == b'\r' { b'\n' } else { ch };
+
+            buf[read_count] = out;
+            read_count += 1;
+
+            if echo_enabled {
+                self.device.putc(out).unwrap();
+            }
+
+            if is_newline {
                 break;
             }
-            if LocalModes::from_bits_truncate(self.io.lock().termios.lflag)
-                .contains(LocalModes::ECHO)
-            {
-                self.device.putc(ch).unwrap();
-            }
+
             if read_count >= buf.len() {
                 break;
             }

@@ -3,21 +3,18 @@
 
 extern crate alloc;
 
-use alloc::boxed::Box;
-#[cfg(target_arch = "riscv64")]
 use alloc::{
+    boxed::Box,
     collections::BTreeMap,
     format,
     string::{String, ToString},
     sync::Arc,
 };
-#[cfg(target_arch = "riscv64")]
 use core::{
     cmp::min,
     fmt::{Debug, Formatter},
 };
 
-#[cfg(target_arch = "riscv64")]
 use basic::sync::Mutex;
 use basic::{println, AlienResult};
 #[cfg(target_arch = "riscv64")]
@@ -25,13 +22,11 @@ use interface::define_unwind_for_APICDomain;
 use interface::{APICDomain, Basic, DeviceBase};
 use shared_heap::DVec;
 
-#[cfg(target_arch = "riscv64")]
 enum DeviceDomain {
     Name(String),
     Domain(Arc<dyn DeviceBase>),
 }
 
-#[cfg(target_arch = "riscv64")]
 impl Debug for DeviceDomain {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -41,16 +36,11 @@ impl Debug for DeviceDomain {
     }
 }
 
-#[cfg(target_arch = "riscv64")]
 #[derive(Debug, Default)]
 pub struct APICDomainImpl {
     table: Mutex<BTreeMap<usize, DeviceDomain>>,
     count: Mutex<BTreeMap<usize, usize>>,
 }
-
-#[cfg(target_arch = "x86_64")]
-#[derive(Debug, Default)]
-pub struct APICDomainImpl;
 
 impl Basic for APICDomainImpl {
     fn domain_id(&self) -> u64 {
@@ -58,7 +48,6 @@ impl Basic for APICDomainImpl {
     }
 }
 
-#[cfg(target_arch = "riscv64")]
 impl APICDomain for APICDomainImpl {
     fn init(&self) -> AlienResult<()> {
         println!("APIC domain init");
@@ -67,10 +56,10 @@ impl APICDomain for APICDomainImpl {
 
     fn handle_irq(&self, irq: usize) -> AlienResult<()> {
         let mut table = self.table.lock();
-        let device_domain = table
-            .get(&irq)
-            .or_else(|| panic!("no device for irq {}", irq))
-            .unwrap();
+        let Some(device_domain) = table.get(&irq) else {
+            println!("APIC unhandled irq {}", irq);
+            return Ok(());
+        };
 
         match device_domain {
             DeviceDomain::Name(name) => {
@@ -84,12 +73,8 @@ impl APICDomain for APICDomainImpl {
             }
         }
 
-        *self
-            .count
-            .lock()
-            .get_mut(&irq)
-            .or_else(|| panic!("no device for irq {}", irq))
-            .unwrap() += 1;
+        let mut count = self.count.lock();
+        *count.entry(irq).or_insert(0) += 1;
         Ok(())
     }
 
@@ -110,26 +95,6 @@ impl APICDomain for APICDomainImpl {
         });
         let copy_len = min(buf.len(), res.as_bytes().len());
         buf.as_mut_slice()[..copy_len].copy_from_slice(&res.as_bytes()[..copy_len]);
-        Ok(buf)
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-impl APICDomain for APICDomainImpl {
-    fn init(&self) -> AlienResult<()> {
-        println!("APIC domain init (x86 stub)");
-        Ok(())
-    }
-
-    fn handle_irq(&self, _irq: usize) -> AlienResult<()> {
-        Ok(())
-    }
-
-    fn register_irq(&self, _irq: usize, _device_domain_name: &DVec<u8>) -> AlienResult<()> {
-        Ok(())
-    }
-
-    fn irq_info(&self, buf: DVec<u8>) -> AlienResult<DVec<u8>> {
         Ok(buf)
     }
 }

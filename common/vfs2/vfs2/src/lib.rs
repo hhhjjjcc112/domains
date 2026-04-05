@@ -205,14 +205,38 @@ impl VfsDomain for VfsDomainImpl {
     }
 
     fn vfs_write(&self, inode: InodeID, buf: &DVec<u8>, w_len: usize) -> AlienResult<usize> {
-        let file = get_file(inode).unwrap();
+        let file = match get_file(inode) {
+            Some(file) => file,
+            None => {
+                println_color!(31, "[vfs_write_trace] inode {} not found", inode);
+                return Err(AlienError::EINVAL);
+            }
+        };
         if buf.len() != w_len {
             println_color!(31, "vfs_write: buf.len() != w_len");
             let buf = DVec::from_slice(&buf.as_slice()[..w_len]);
-            let res = file.write(&buf)?;
+            let res = file.write(&buf).map_err(|err| {
+                println_color!(
+                    31,
+                    "[vfs_write_trace] short write failed: inode={}, w_len={}, err={:?}",
+                    inode,
+                    w_len,
+                    err
+                );
+                err
+            })?;
             Ok(res)
         } else {
-            let res = file.write(buf)?;
+            let res = file.write(buf).map_err(|err| {
+                println_color!(
+                    31,
+                    "[vfs_write_trace] write failed: inode={}, w_len={}, err={:?}",
+                    inode,
+                    w_len,
+                    err
+                );
+                err
+            })?;
             Ok(res)
         }
     }

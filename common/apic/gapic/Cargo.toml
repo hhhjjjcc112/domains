@@ -10,10 +10,8 @@ basic = { path = "../../../../domain-lib/basic" }
 shared_heap = { path = "../../../../domain-lib/shared_heap" }
 interface = { path = "../../../../domain-lib/interface", features = ["domain"] }
 storage = { path = "../../../../domain-lib/storage", features = ["impl"] }
+apic = { path = "../apic" }
 
 [features]
 default = ["rust-unwind"]
 rust-unwind = []
-
-[target.'cfg(target_arch = "riscv64")'.dependencies]
-apic = { path = "../apic" }

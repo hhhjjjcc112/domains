@@ -1,5 +1,6 @@
 #![no_std]
 #![forbid(unsafe_code)]
+mod abi;
 mod domain;
 mod fs;
 mod gui;
@@ -75,6 +76,8 @@ impl SysCallDomain for SysCallDomainImpl {
     }
 
     fn call(&self, syscall_id: usize, args: [usize; 6]) -> AlienResult<isize> {
+        let orig_syscall_id = syscall_id;
+        let (syscall_id, args) = abi::normalize_syscall_call(syscall_id, args)?;
         let syscall_name = syscall_name(syscall_id);
         // let pid = self.task_domain.current_pid().unwrap();
         let tid = basic::current_tid()?;
@@ -91,9 +94,9 @@ impl SysCallDomain for SysCallDomainImpl {
         }
 
         match syscall_id {
-            19 => sys_eventfd2(&self.vfs_domain, &self.task_domain, args[0], args[1]),
-            20 => sys_poll_createl(&self.vfs_domain, &self.task_domain, args[0]),
-            21 => sys_poll_ctl(
+            SYSCALL_EVENTFD2 => sys_eventfd2(&self.vfs_domain, &self.task_domain, args[0], args[1]),
+            SYSCALL_EPOLL_CREATE1 => sys_poll_createl(&self.vfs_domain, &self.task_domain, args[0]),
+            SYSCALL_EPOLL_CTL => sys_poll_ctl(
                 &self.vfs_domain,
                 &self.task_domain,
                 args[0],
@@ -245,6 +248,10 @@ impl SysCallDomain for SysCallDomainImpl {
             SYSCALL_EXIT => sys_exit(&self.task_domain, args[0]),
             SYSCALL_EXIT_GROUP => sys_exit_group(&self.task_domain, args[0]),
             SYSCALL_SET_TID_ADDRESS => sys_set_tid_address(&self.task_domain, args[0]),
+            #[cfg(target_arch = "x86_64")]
+            X86_64_RAW_SYSCALL_SET_TID_ADDRESS => sys_set_tid_address(&self.task_domain, args[0]),
+            #[cfg(target_arch = "x86_64")]
+            SYSCALL_ARCH_PRCTL => sys_arch_prctl(&self.task_domain, args[0], args[1]),
             SYSCALL_CLOCK_GETTIME => sys_clock_gettime(&self.task_domain, args[0], args[1]),
             SYSCALL_YIELD => sys_yield(),
             SYSCALL_FUTEX => sys_futex(
@@ -256,13 +263,13 @@ impl SysCallDomain for SysCallDomainImpl {
                 args[4],
                 args[5],
             ),
-            132 => sys_sigaltstack(&self.task_domain, args[0], args[1]),
+            SYSCALL_SIGALTSTACK => sys_sigaltstack(&self.task_domain, args[0], args[1]),
             SYSCALL_SIGACTION => sys_sigaction(&self.task_domain, args[0], args[1], args[2]),
             SYSCALL_SIGPROCMASK => {
                 sys_sigprocmask(&self.task_domain, args[0], args[1], args[2], args[3])
             }
-            140 => sys_set_priority(&self.task_domain, args[0], args[1], args[2]),
-            141 => sys_get_priority(&self.task_domain, args[0], args[1]),
+            SYSCALL_SET_PRIORITY => sys_set_priority(&self.task_domain, args[0], args[1], args[2]),
+            SYSCALL_GET_PRIORITY => sys_get_priority(&self.task_domain, args[0], args[1]),
             SYSCALL_SETPGID => sys_set_pgid(&self.task_domain),
             SYSCALL_GETPGID => sys_get_pgid(&self.task_domain),
             SYSCALL_SETSID => sys_set_sid(&self.task_domain),
@@ -286,7 +293,7 @@ impl SysCallDomain for SysCallDomainImpl {
                     args[2],
                 )
             }
-            199 => {
+            SYSCALL_SOCKETPAIR => {
                 let net_stack_domain = self.net_stack_domain()?;
                 sys_socket_pair(
                     &self.task_domain,
@@ -442,7 +449,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 args[3],
                 args[4],
             ),
-            278 => sys_random(&self.task_domain, args[0], args[1], args[2]),
+            SYSCALL_GETRANDOM => sys_random(&self.task_domain, args[0], args[1], args[2]),
             888 => sys_load_domain(
                 &self.task_domain,
                 &self.vfs_domain,
@@ -467,7 +474,17 @@ impl SysCallDomain for SysCallDomainImpl {
                 args[0],
                 args[1],
             ),
-            _ => panic!("syscall [{}: {}] not found", syscall_id, syscall_name),
+            _ => {
+                #[cfg(target_arch = "x86_64")]
+                if is_linux_x86_64_abi_syscall(orig_syscall_id) {
+                    log::warn!(
+                        "[x86 linux-abi] unsupported syscall raw={:#x}",
+                        raw_syscall_id(orig_syscall_id)
+                    );
+                    return Err(AlienError::ENOSYS);
+                }
+                panic!("syscall [{}: {}] not found", syscall_id, syscall_name)
+            }
         }
     }
 }

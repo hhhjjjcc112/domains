@@ -3,7 +3,7 @@ mod resource;
 
 use alloc::sync::Arc;
 
-use basic::AlienResult;
+use basic::{constants::*, AlienError, AlienResult};
 use interface::TaskDomain;
 pub use ipc::*;
 use log::info;
@@ -46,6 +46,50 @@ pub fn sys_yield() -> AlienResult<isize> {
 
 pub fn sys_set_tid_address(task_domain: &Arc<dyn TaskDomain>, tidptr: usize) -> AlienResult<isize> {
     task_domain.do_set_tid_address(tidptr)
+}
+
+#[cfg(target_arch = "x86_64")]
+pub fn sys_arch_prctl(
+    task_domain: &Arc<dyn TaskDomain>,
+    code: usize,
+    addr: usize,
+) -> AlienResult<isize> {
+    match code {
+        ARCH_SET_FS => {
+            task_domain.do_set_fs_base(addr)?;
+            Ok(0)
+        }
+        ARCH_SET_GS => {
+            task_domain.do_set_gs_base(addr)?;
+            Ok(0)
+        }
+        ARCH_GET_FS => {
+            if addr == 0 {
+                return Err(AlienError::EFAULT);
+            }
+            let fs_base = task_domain.do_get_fs_base()?;
+            task_domain.copy_to_user(addr, &fs_base.to_ne_bytes())?;
+            Ok(0)
+        }
+        ARCH_GET_GS => {
+            if addr == 0 {
+                return Err(AlienError::EFAULT);
+            }
+            let gs_base = task_domain.do_get_gs_base()?;
+            task_domain.copy_to_user(addr, &gs_base.to_ne_bytes())?;
+            Ok(0)
+        }
+        _ => Err(AlienError::EINVAL),
+    }
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+pub fn sys_arch_prctl(
+    _task_domain: &Arc<dyn TaskDomain>,
+    _code: usize,
+    _addr: usize,
+) -> AlienResult<isize> {
+    Err(AlienError::ENOSYS)
 }
 
 pub fn sys_getuid(_task_domain: &Arc<dyn TaskDomain>) -> AlienResult<isize> {

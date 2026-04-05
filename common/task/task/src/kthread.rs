@@ -65,6 +65,8 @@ pub fn ktread_create(func: fn(), name: &str) -> AlienResult<()> {
                 ss_flags: 0x2,
                 ss_size: 0,
             },
+            fs_base: 0,
+            gs_base: 0,
         }),
         send_sigchld_when_exit: false,
         mmap: Arc::new(Mutex::new(MMapInfo::new())),
@@ -72,6 +74,12 @@ pub fn ktread_create(func: fn(), name: &str) -> AlienResult<()> {
         signal_receivers: Arc::new(Mutex::new(SignalReceivers::new())),
     };
     let task = Arc::new(task);
+    println!(
+        "kthread created: name={}, tid={}, k_sp={:#x}",
+        name,
+        task.tid(),
+        k_stack_top
+    );
     add_task(task);
     Ok(())
 }

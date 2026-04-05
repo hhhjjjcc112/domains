@@ -10,9 +10,15 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use basic::{config::*, vm::frame::FrameTracker, AlienError, AlienResult};
+use basic::{
+    config::*,
+    vaddr_to_paddr_in_kernel,
+    vm::frame::FrameTracker,
+    AlienError,
+    AlienResult,
+};
 use memory_addr::{PhysAddr, VirtAddr};
-use page_table::{MappingFlags, NotLeafPage, PagingIf};
+use page_table::{MappingFlags, NotLeafPage, PagingError, PagingIf};
 #[cfg(target_arch = "riscv64")]
 use page_table::Rv64PTE as ArchPTE;
 #[cfg(target_arch = "x86_64")]
@@ -178,6 +184,14 @@ fn collect_load_info(elf: &ElfFile, bias: usize) -> Vec<LoadInfo> {
     info
 }
 
+#[inline]
+fn paging_err_to_alien(err: PagingError) -> AlienError {
+    match err {
+        PagingError::NoMemory => AlienError::ENOMEM,
+        _ => AlienError::EINVAL,
+    }
+}
+
 pub fn load_to_vm_space(
     elf: &ElfFile,
     bias: usize,
@@ -186,45 +200,136 @@ pub fn load_to_vm_space(
     let mut break_addr = 0usize;
     let info = collect_load_info(elf, bias);
 
-    for section in info {
-        let vaddr = VirtAddr::from(section.start_vaddr).align_down_4k();
-        let end_vaddr = VirtAddr::from(section.end_vaddr).align_up_4k();
-        break_addr = section.end_vaddr;
-        let len = end_vaddr.as_usize() - vaddr.as_usize();
+    for (index, section) in info.into_iter().enumerate() {
+        let vaddr = VirtAddr::from(section.start_vaddr).align_down_4k().as_usize();
+        let end_vaddr = VirtAddr::from(section.end_vaddr).align_up_4k().as_usize();
+        break_addr = break_addr.max(section.end_vaddr);
+        let total_pages = (end_vaddr - vaddr) / FRAME_SIZE;
         warn!(
-            "load segment: {:#x} - {:#x} -> {:#x}-{:#x}, permission: {:?}",
+            "[elf-load-v2] load segment: {:#x} - {:#x} -> {:#x}-{:#x}, permission: {:?}",
             section.start_vaddr,
             section.end_vaddr,
-            vaddr.as_usize(),
-            end_vaddr.as_usize(),
+            vaddr,
+            end_vaddr,
             section.permission
         );
-        let mut data = &elf.input[section.offset..(section.offset + section.file_size)];
-        let mut phy_frames = vec![];
-        for _ in 0..len / FRAME_SIZE {
-            let frame = FrameTracker::new(1);
-            phy_frames.push(Box::new(FrameTrackerWrapper(frame)));
+
+        if section.file_size > section.end_vaddr.saturating_sub(section.start_vaddr) {
+            error!(
+                "segment {} invalid size: file_size={:#x}, mem_size={:#x}",
+                index,
+                section.file_size,
+                section.end_vaddr.saturating_sub(section.start_vaddr)
+            );
+            return Err(AlienError::EINVAL);
         }
 
-        let mut page_offset = section.start_vaddr & (FRAME_SIZE - 1);
-        let mut count = 0;
-        phy_frames.iter_mut().for_each(|phy_frame| {
-            let size = FRAME_SIZE;
-            let min = min(size - page_offset, data.len());
-            phy_frame[page_offset..(page_offset + min)].copy_from_slice(&data[..min]);
-            data = &data[min..];
-            count += min;
-            page_offset = 0;
-        });
-        assert_eq!(count, section.file_size);
-        let phy_frames = phy_frames.into_iter().map(|x| x as _).collect();
+        let data_start = section.offset;
+        let data_end = section.offset.saturating_add(section.file_size);
+        if data_end > elf.input.len() {
+            error!(
+                "segment {} out of bound: [{:#x}, {:#x}) > elf_len={:#x}",
+                index,
+                data_start,
+                data_end,
+                elf.input.len()
+            );
+            return Err(AlienError::EINVAL);
+        }
 
-        let area = VmArea::new(
-            vaddr.as_usize()..end_vaddr.as_usize(),
-            section.permission,
-            phy_frames,
+        let data = &elf.input[data_start..data_end];
+        let seg_file_end = section.start_vaddr.saturating_add(section.file_size);
+        let mut mapped_pages = 0usize;
+        let mut reused_pages = 0usize;
+        let mut copied = 0usize;
+
+        let mut page = vaddr;
+        while page < end_vaddr {
+            match address_space.query(page) {
+                Ok((_, old_permission, _)) => {
+                    reused_pages += 1;
+                    let merged_permission = old_permission | section.permission;
+                    if merged_permission != old_permission {
+                        address_space
+                            .protect(page..(page + FRAME_SIZE), merged_permission)
+                            .map_err(paging_err_to_alien)?;
+                    }
+                }
+                Err(PagingError::NotMapped) => {
+                    let frame = FrameTracker::new(1);
+                    let area = VmArea::new(
+                        page..(page + FRAME_SIZE),
+                        section.permission,
+                        vec![Box::new(FrameTrackerWrapper(frame))],
+                    );
+                    address_space
+                        .map(VmAreaType::VmArea(area))
+                        .map_err(|err| {
+                            error!(
+                                "segment {} map page {:#x} failed: {:?}",
+                                index,
+                                page,
+                                err
+                            );
+                            paging_err_to_alien(err)
+                        })?;
+                    mapped_pages += 1;
+                }
+                Err(err) => {
+                    error!(
+                        "segment {} query page {:#x} failed: {:?}",
+                        index,
+                        page,
+                        err
+                    );
+                    return Err(paging_err_to_alien(err));
+                }
+            }
+
+            let copy_start = page.max(section.start_vaddr);
+            let copy_end = (page + FRAME_SIZE).min(seg_file_end);
+            if copy_start < copy_end {
+                let src_offset = copy_start - section.start_vaddr;
+                let len = copy_end - copy_start;
+                address_space
+                    .write_bytes(
+                        VirtAddr::from(copy_start),
+                        &data[src_offset..(src_offset + len)],
+                    )
+                    .map_err(|err| {
+                        error!(
+                            "segment {} write page data failed: va={:#x}, len={:#x}, err={:?}",
+                            index,
+                            copy_start,
+                            len,
+                            err
+                        );
+                        paging_err_to_alien(err)
+                    })?;
+                copied += len;
+            }
+
+            page += FRAME_SIZE;
+        }
+
+        if copied != section.file_size {
+            error!(
+                "segment {} copied size mismatch: copied={:#x}, file_size={:#x}",
+                index,
+                copied,
+                section.file_size
+            );
+            return Err(AlienError::EINVAL);
+        }
+
+        warn!(
+            "[elf-load-v2] segment {} done: new_pages={}, reused_pages={}, copied={:#x}, total_pages={}",
+            index,
+            mapped_pages,
+            reused_pages,
+            copied,
+            total_pages
         );
-        address_space.map(VmAreaType::VmArea(area)).unwrap();
     }
 
     Ok(break_addr)
@@ -251,13 +356,24 @@ fn relocate_dyn(elf: &ElfFile, bias: usize) -> AlienResult<Vec<(usize, usize)>> 
         _ => return Err(AlienError::EINVAL),
     };
     for entry in entries.iter() {
-        const REL_GOT: u32 = 6;
-        const REL_PLT: u32 = 7;
-        const REL_RELATIVE: u32 = 8;
-        const R_RISCV_64: u32 = 2;
-        const R_RISCV_RELATIVE: u32 = 3;
+        // 按架构区分重定位常量，避免 x86_64 与 riscv64 混用。
+        #[cfg(target_arch = "x86_64")]
+        const REL_SYM_ABS: u32 = 1; // R_X86_64_64
+        #[cfg(target_arch = "x86_64")]
+        const REL_GOT: u32 = 6; // R_X86_64_GLOB_DAT
+        #[cfg(target_arch = "x86_64")]
+        const REL_PLT: u32 = 7; // R_X86_64_JUMP_SLOT
+        #[cfg(target_arch = "x86_64")]
+        const REL_RELATIVE: u32 = 8; // R_X86_64_RELATIVE
+
+        #[cfg(target_arch = "riscv64")]
+        const REL_SYM_ABS: u32 = 2; // R_RISCV_64
+        #[cfg(target_arch = "riscv64")]
+        const REL_RELATIVE: u32 = 3; // R_RISCV_RELATIVE
+
         match entry.get_type() {
-            REL_GOT | REL_PLT | R_RISCV_64 => {
+            #[cfg(target_arch = "x86_64")]
+            REL_SYM_ABS | REL_GOT | REL_PLT => {
                 let dynsym = &dynsym[entry.get_symbol_table_index() as usize];
                 let symval = if dynsym.shndx() == 0 {
                     let name = dynsym.get_name(elf).map_err(|_| AlienError::EINVAL)?;
@@ -269,7 +385,27 @@ fn relocate_dyn(elf: &ElfFile, bias: usize) -> AlienResult<Vec<(usize, usize)>> 
                 let addr = bias + entry.get_offset() as usize;
                 res.push((addr, value))
             }
-            REL_RELATIVE | R_RISCV_RELATIVE => {
+            #[cfg(target_arch = "riscv64")]
+            REL_SYM_ABS => {
+                let dynsym = &dynsym[entry.get_symbol_table_index() as usize];
+                let symval = if dynsym.shndx() == 0 {
+                    let name = dynsym.get_name(elf).map_err(|_| AlienError::EINVAL)?;
+                    panic!("need to find symbol: {:?}", name);
+                } else {
+                    bias + dynsym.value() as usize
+                };
+                let value = symval + entry.get_addend() as usize;
+                let addr = bias + entry.get_offset() as usize;
+                res.push((addr, value))
+            }
+            #[cfg(target_arch = "x86_64")]
+            REL_RELATIVE => {
+                let value = bias + entry.get_addend() as usize;
+                let addr = bias + entry.get_offset() as usize;
+                res.push((addr, value))
+            }
+            #[cfg(target_arch = "riscv64")]
+            REL_RELATIVE => {
                 let value = bias + entry.get_addend() as usize;
                 let addr = bias + entry.get_offset() as usize;
                 res.push((addr, value))
@@ -300,9 +436,14 @@ fn relocate_plt(elf: &ElfFile, bias: usize) -> AlienResult<Vec<(usize, usize)>> 
         SectionData::DynSymbolTable64(dsym) => dsym,
         _ => return Err(AlienError::EINVAL),
     };
+    #[cfg(target_arch = "x86_64")]
+    const REL_PLT: u32 = 7; // R_X86_64_JUMP_SLOT
+    #[cfg(target_arch = "riscv64")]
+    const REL_PLT: u32 = 5; // R_RISCV_JUMP_SLOT
+
     for entry in entries.iter() {
         match entry.get_type() {
-            5 => {
+            REL_PLT => {
                 let dynsym = &dynsym[entry.get_symbol_table_index() as usize];
                 let symval = if dynsym.shndx() == 0 {
                     let name = dynsym.get_name(elf).map_err(|_| AlienError::EINVAL)?;
@@ -385,7 +526,7 @@ pub fn build_vm_space(elf: &[u8], args: &mut Vec<String>, name: &str) -> AlienRe
     );
     address_space
         .map(VmAreaType::VmArea(user_stack_area))
-        .unwrap();
+        .map_err(paging_err_to_alien)?;
 
     let heap_bottom = uer_stack_top;
 
@@ -397,7 +538,7 @@ pub fn build_vm_space(elf: &[u8], args: &mut Vec<String>, name: &str) -> AlienRe
     );
     address_space
         .map(VmAreaType::VmArea(trap_context_area))
-        .unwrap();
+        .map_err(paging_err_to_alien)?;
 
     // todo!(how to solve trampoline)
     let trampoline_frame = FrameTracker::create_trampoline();
@@ -409,7 +550,68 @@ pub fn build_vm_space(elf: &[u8], args: &mut Vec<String>, name: &str) -> AlienRe
     );
     address_space
         .map(VmAreaType::VmArea(trampoline_area))
-        .unwrap();
+        .map_err(paging_err_to_alien)?;
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        // 仅覆盖 CPU0 的 percpu 镜像页，满足 syscall 入口早期 gs 访存。
+        const PERCPU_USER_MAP_SIZE: usize = 0x20_000;
+        let mut percpu_frames: Vec<Box<dyn PhysPage>> = Vec::new();
+        for off in (0..PERCPU_USER_MAP_SIZE).step_by(FRAME_SIZE) {
+            let va = PERCPU_MIRROR_BASE + off;
+            let pa = match vaddr_to_paddr_in_kernel(va) {
+                Ok(pa) => pa,
+                Err(err) => {
+                    if off == 0 {
+                        warn!(
+                            "skip percpu mirror map: va={:#x}, err={:?}",
+                            va,
+                            err
+                        );
+                    }
+                    break;
+                }
+            };
+            let frame = FrameTracker::from_phy_range(pa..(pa + FRAME_SIZE));
+            percpu_frames.push(Box::new(FrameTrackerWrapper(frame)));
+        }
+        if !percpu_frames.is_empty() {
+            let mapped_size = percpu_frames.len() * FRAME_SIZE;
+            let percpu_area = VmArea::new(
+                PERCPU_MIRROR_BASE..(PERCPU_MIRROR_BASE + mapped_size),
+                MappingFlags::READ | MappingFlags::WRITE,
+                percpu_frames,
+            );
+            address_space
+                .map(VmAreaType::VmArea(percpu_area))
+                .map_err(paging_err_to_alien)?;
+        }
+
+        // 过渡方案：补齐内核低地址核心区映射，确保 iret/syscall 所需描述符表可见。
+        const KERNEL_CORE_MAP_START: usize = 0x20_0000;
+        const KERNEL_CORE_MAP_SIZE: usize = 0xA0_0000;
+        let mut core_frames: Vec<Box<dyn PhysPage>> = Vec::new();
+        for off in (0..KERNEL_CORE_MAP_SIZE).step_by(FRAME_SIZE) {
+            let va = KERNEL_CORE_MAP_START + off;
+            let pa = match vaddr_to_paddr_in_kernel(va) {
+                Ok(pa) => pa,
+                Err(_) => break,
+            };
+            let frame = FrameTracker::from_phy_range(pa..(pa + FRAME_SIZE));
+            core_frames.push(Box::new(FrameTrackerWrapper(frame)));
+        }
+        if !core_frames.is_empty() {
+            let mapped_size = core_frames.len() * FRAME_SIZE;
+            let area = VmArea::new(
+                KERNEL_CORE_MAP_START..(KERNEL_CORE_MAP_START + mapped_size),
+                MappingFlags::READ | MappingFlags::WRITE,
+                core_frames,
+            );
+            address_space
+                .map(VmAreaType::VmArea(area))
+                .map_err(paging_err_to_alien)?;
+        }
+    }
 
     let res = if let Some(phdr) = elf
         .program_iter()

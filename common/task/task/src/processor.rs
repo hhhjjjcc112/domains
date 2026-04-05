@@ -1,12 +1,25 @@
 use alloc::{collections::BTreeMap, sync::Arc};
 
-use basic::{sync::Mutex, wake_up_wait_task};
+use basic::{println, sync::Mutex, wake_up_wait_task};
 
 use crate::task::Task;
 
 pub fn current_task() -> Option<Arc<Task>> {
-    let tid = basic::current_tid().unwrap()?;
+    let tid = match basic::current_tid() {
+        Ok(Some(tid)) => tid,
+        Ok(None) => {
+            println!("task::current_task: no current tid");
+            return None;
+        }
+        Err(err) => {
+            println!("task::current_task: current_tid error: {:?}", err);
+            return None;
+        }
+    };
     let task = GLOBAL_TASK_MANAGER.lock().get(&tid).map(Arc::clone);
+    if task.is_none() {
+        println!("task::current_task: tid {} not found", tid);
+    }
     task
 }
 

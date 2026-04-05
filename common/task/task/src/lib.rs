@@ -62,14 +62,21 @@ impl TaskDomain for TaskDomainImpl {
     }
 
     fn page_table_token_with_trap_frame_virt_addr(&self) -> AlienResult<(usize, usize)> {
-        let task = current_task().unwrap();
+        let task = current_task().ok_or_else(|| {
+            error!("page_table_token_with_trap_frame_virt_addr: current_task is None");
+            AlienError::EINVAL
+        })?;
         let addr = task.trap_frame_virt_ptr();
+        let addr_usize = addr.as_usize();
         let token = task.token();
-        Ok((token, addr.as_usize()))
+        Ok((token, addr_usize))
     }
 
     fn trap_frame_phy_addr(&self) -> AlienResult<usize> {
-        let task = current_task().unwrap();
+        let task = current_task().ok_or_else(|| {
+            error!("trap_frame_phy_addr: current_task is None");
+            AlienError::EINVAL
+        })?;
         Ok(task.trap_frame_phy_ptr().as_usize())
     }
 
@@ -195,6 +202,63 @@ impl TaskDomain for TaskDomainImpl {
         task.set_tid_address(tidptr);
         Ok(task.tid() as _)
     }
+
+    fn do_set_fs_base(&self, fs_base: usize) -> AlienResult<()> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let task = current_task().ok_or(AlienError::EINVAL)?;
+            task.inner.lock().fs_base = fs_base;
+            return Ok(());
+        }
+
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            let _ = fs_base;
+            Err(AlienError::ENOSYS)
+        }
+    }
+
+    fn do_get_fs_base(&self) -> AlienResult<usize> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let task = current_task().ok_or(AlienError::EINVAL)?;
+            return Ok(task.inner.lock().fs_base);
+        }
+
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            Err(AlienError::ENOSYS)
+        }
+    }
+
+    fn do_set_gs_base(&self, gs_base: usize) -> AlienResult<()> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let task = current_task().ok_or(AlienError::EINVAL)?;
+            task.inner.lock().gs_base = gs_base;
+            return Ok(());
+        }
+
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            let _ = gs_base;
+            Err(AlienError::ENOSYS)
+        }
+    }
+
+    fn do_get_gs_base(&self) -> AlienResult<usize> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let task = current_task().ok_or(AlienError::EINVAL)?;
+            return Ok(task.inner.lock().gs_base);
+        }
+
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            Err(AlienError::ENOSYS)
+        }
+    }
+
     fn do_mmap(
         &self,
         start: usize,

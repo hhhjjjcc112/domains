@@ -59,13 +59,38 @@ pub fn sys_write(
     buf: *const u8,
     len: usize,
 ) -> AlienResult<isize> {
-    let file = task_domain.get_fd(fd)?;
+    let file = match task_domain.get_fd(fd) {
+        Ok(file) => file,
+        Err(err) => {
+            if fd <= 2 {
+                println_color!(
+                    31,
+                    "[sys_write_trace] get_fd failed: fd={}, len={}, err={:?}",
+                    fd,
+                    len,
+                    err
+                );
+            }
+            return Err(err);
+        }
+    };
     if len == 0 {
         return Ok(0);
     }
     let mut tmp_buf = DVec::<u8>::new_uninit(len);
     task_domain.copy_from_user(buf as usize, tmp_buf.as_mut_slice())?;
     let w = vfs.vfs_write(file, &tmp_buf, len);
+    if let Err(err) = &w {
+        if fd <= 2 {
+            println_color!(
+                31,
+                "[sys_write_trace] vfs_write failed: fd={}, len={}, err={:?}",
+                fd,
+                len,
+                err
+            );
+        }
+    }
     w.map(|x| x as isize)
 }
 
@@ -531,7 +556,16 @@ pub fn sys_ppoll(
     let mut fds = vec![0u8; core::mem::size_of::<PollFd>() * nfds];
     task_domain.copy_from_user(fds_ptr, fds.as_mut_slice())?;
     debug!("fds: {:?}", fds);
-    let wait_time = if timeout != 0 {
+    let wait_time = if sigmask == usize::MAX {
+        if timeout == 0 {
+            None
+        } else {
+            let sec = timeout / 1000;
+            let nsec = (timeout % 1000) * 1_000_000;
+            let time_spec = TimeSpec::new(sec, nsec);
+            Some(time_spec.to_clock() + TimeSpec::now().to_clock())
+        }
+    } else if timeout != 0 {
         let time_spec = task_domain.read_val_from_user::<TimeSpec>(timeout)?;
         Some(time_spec.to_clock() + TimeSpec::now().to_clock())
     } else {

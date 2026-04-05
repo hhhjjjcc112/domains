@@ -141,7 +141,7 @@ pub fn build_domain(name: &str, log: String, dir: &str, output: &String) {
             let path = Path::new(&path);
             println!("Start building domain,path: {:?}", path);
             // 仅动态传入临时链接脚本，其他编译参数保持在 .cargo/config.toml。
-            let _cmd = std::process::Command::new("cargo")
+            let status = std::process::Command::new("cargo")
                 .arg("rustc")
                 .arg("--release")
                 .env("LOG", log)
@@ -157,12 +157,26 @@ pub fn build_domain(name: &str, log: String, dir: &str, output: &String) {
                 .arg(format!("-Clink-arg=-T{}", linker_script.display()))
                 .status()
                 .expect("failed to execute cargo build");
+            if !status.success() {
+                panic!(
+                    "build domain [{}] failed with status: {}",
+                    name,
+                    status
+                );
+            }
             println!("Build domain [{}] project success", name);
-            std::process::Command::new("cp")
+            let cp_status = std::process::Command::new("cp")
                 .arg(format!("./target/{}/release/g{}", target_dir, name))
                 .arg(format!("{}/{}/g{}", output, dir, name))
                 .status()
                 .expect("failed to execute cp");
+            if !cp_status.success() {
+                panic!(
+                    "copy domain [{}] failed with status: {}",
+                    name,
+                    cp_status
+                );
+            }
             println!("Copy domain [{}] project success", name);
             return;
         }

@@ -96,8 +96,10 @@ impl BufUartDomain for Uart {
         loop {
             let mut inner = self.inner.lock();
             if inner.rx_buf.is_empty() {
-                let tid = basic::current_tid()?.unwrap();
-                inner.wait_queue.push_back(tid);
+                let tid = basic::current_tid()?.ok_or(AlienError::EINVAL)?;
+                if !inner.wait_queue.contains(&tid) {
+                    inner.wait_queue.push_back(tid);
+                }
                 drop(inner);
                 basic::wait_now()?;
             } else {

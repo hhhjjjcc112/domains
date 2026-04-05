@@ -108,21 +108,32 @@ fn init_filesystem_before(initrd: &[u8]) -> VfsResult<Arc<dyn VfsDentry>> {
         map_shadow.insert(VFS_STDERR_ID, ());
     }
 
-    let fatfs_domain = basic::get_domain("fatfs-1").unwrap();
-    match fatfs_domain {
-        DomainType::FsDomain(fatfs) => {
+    match basic::get_domain("fatfs-1") {
+        Some(DomainType::FsDomain(fatfs)) => {
             println!("fatfs mount begin: /tests");
-            let blk_inode = path
-                .join("/dev/sda")?
-                .open(None)
-                .expect("open /dev/sda failed");
+            let blk_inode = match path.join("/dev/sda") {
+                Ok(node) => match node.open(None) {
+                    Ok(inode) => inode,
+                    Err(e) => {
+                        println_color!(93, "fatfs skip: open /dev/sda failed: {:?}", e);
+                        return Ok(ramfs_root);
+                    }
+                },
+                Err(e) => {
+                    println_color!(93, "fatfs skip: lookup /dev/sda failed: {:?}", e);
+                    return Ok(ramfs_root);
+                }
+            };
             println!("fatfs 已打开块设备 /dev/sda");
             let _id = insert_dentry(blk_inode.clone(), OpenFlags::O_RDWR);
             let mp = DVec::from_slice(b"/tests");
-            let blk_inode = blk_inode
-                .downcast_arc::<RootShimDentry>()
-                .map_err(|_| "blk_inode downcast failed")
-                .unwrap();
+            let blk_inode = match blk_inode.downcast_arc::<RootShimDentry>() {
+                Ok(inode) => inode,
+                Err(_) => {
+                    println_color!(93, "fatfs skip: blk_inode downcast failed");
+                    return Ok(ramfs_root);
+                }
+            };
             let domain_ident = blk_inode.fs_domain_ident_str();
             let mount_inode_id = blk_inode.inode_id();
             let info = MountInfo {
@@ -134,13 +145,35 @@ fn init_filesystem_before(initrd: &[u8]) -> VfsResult<Arc<dyn VfsDentry>> {
                     ident
                 },
             };
-            let root_inode_id = fatfs.mount(&mp, Some(DBox::new(info))).unwrap();
+            let root_inode_id = match fatfs.mount(&mp, Some(DBox::new(info))) {
+                Ok(id) => id,
+                Err(e) => {
+                    println_color!(93, "fatfs skip: mount /tests failed: {:?}", e);
+                    return Ok(ramfs_root);
+                }
+            };
             let shim_inode =
                 RootShimDentry::new(fatfs, root_inode_id, Arc::new(Vec::from("fatfs-1")));
-            path.join("tests")?.mount(shim_inode, 0)?;
+            match path.join("tests") {
+                Ok(node) => {
+                    if let Err(e) = node.mount(shim_inode, 0) {
+                        println_color!(93, "fatfs skip: mountpoint /tests attach failed: {:?}", e);
+                        return Ok(ramfs_root);
+                    }
+                }
+                Err(e) => {
+                    println_color!(93, "fatfs skip: create /tests mountpoint failed: {:?}", e);
+                    return Ok(ramfs_root);
+                }
+            }
             println!("fatfs mount success: /tests");
         }
-        _ => panic!("fatfs domain not found"),
+        Some(_) => {
+            println_color!(93, "fatfs skip: fatfs-1 domain type mismatch");
+        }
+        None => {
+            println_color!(93, "fatfs skip: fatfs-1 domain not found");
+        }
     }
     Ok(ramfs_root)
 }

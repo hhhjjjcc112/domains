@@ -24,7 +24,7 @@ use virtio_drivers::transport::{DeviceStatus, DeviceType, Transport};
 use virtio_drivers::transport::mmio::MmioTransport;
 use virtio_drivers::transport::pci::{LegacyPciTransport, ModernPciTransport};
 use virtio_drivers::device::block::VirtIOBlk;
-use virtio_mmio_common::{HalImpl, SafeIORW};
+use virtio_mmio_common::{to_alien_err, HalImpl, SafeIORW};
 
 pub enum VirtioTransport {
     Mmio(MmioTransport),
@@ -177,7 +177,12 @@ impl Basic for BlkDomain {
 
 impl DeviceBase for BlkDomain {
     fn handle_irq(&self) -> AlienResult<()> {
-        todo!()
+        self.blk
+            .get_must()
+            .lock()
+            .ack_interrupt()
+            .map_err(to_alien_err)?;
+        Ok(())
     }
 }
 
@@ -263,7 +268,7 @@ impl BlkDeviceDomain for BlkDomain {
             .get_must()
             .lock()
             .read_blocks(block as _, data.as_mut_slice())
-            .expect("failed to read block");
+            .map_err(to_alien_err)?;
         Ok(data)
     }
     fn write_block(&self, block: u32, data: &DVec<u8>) -> AlienResult<usize> {
@@ -271,7 +276,7 @@ impl BlkDeviceDomain for BlkDomain {
             .get_must()
             .lock()
             .write_blocks(block as _, data.as_slice())
-            .expect("failed to write block");
+            .map_err(to_alien_err)?;
         Ok(data.len())
     }
     fn get_capacity(&self) -> AlienResult<u64> {
@@ -280,11 +285,15 @@ impl BlkDeviceDomain for BlkDomain {
             .get_must()
             .lock()
             .capacity()
-            .expect("failed to get capacity");
+            .map_err(to_alien_err)?;
         Ok(size)
     }
     fn flush(&self) -> AlienResult<()> {
-        self.blk.get_must().lock().flush().expect("failed to flush");
+        self.blk
+            .get_must()
+            .lock()
+            .flush()
+            .map_err(to_alien_err)?;
         Ok(())
     }
 }

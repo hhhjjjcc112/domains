@@ -15,6 +15,7 @@ use basic::{
         signal::{SignalHandlers, SignalNumber, SignalReceivers, SignalStack},
         task::CloneFlags,
     },
+    println,
     sync::{Mutex, MutexGuard},
     task::{TaskContext, TaskContextExt, TrapFrame},
     vm::frame::FrameTracker,
@@ -96,6 +97,10 @@ pub struct TaskInner {
     /// - SS_ONSTACK = 1
     /// - SS_DISABLE = 2
     pub ss_stack: SignalStack,
+    /// x86_64 用户态 FS 基址（arch_prctl）
+    pub fs_base: usize,
+    /// x86_64 用户态 GS 基址（arch_prctl）
+    pub gs_base: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -158,7 +163,14 @@ impl Task {
 
     pub fn token(&self) -> usize {
         let paddr = self.address_space.lock().root_paddr();
-        (8usize << 60) | (paddr >> 12)
+        #[cfg(target_arch = "riscv64")]
+        {
+            (8usize << 60) | (paddr >> 12)
+        }
+        #[cfg(target_arch = "x86_64")]
+        {
+            paddr
+        }
     }
 
     pub fn read_bytes_from_user(&self, src: VirtAddr, dest: &mut [u8]) -> AlienResult<()> {
@@ -256,11 +268,17 @@ impl Task {
         let pid = tid.clone();
         // 保证用户态至少有 argv[0]，与 execve 语义一致。
         let mut args = vec![name.to_string()];
-        let elf_info = build_vm_space(elf, &mut args, "init");
-        if elf_info.is_err() {
-            return None;
-        }
-        let elf_info = elf_info.unwrap();
+        let elf_info = match build_vm_space(elf, &mut args, "init") {
+            Ok(info) => info,
+            Err(err) => {
+                println!(
+                    "Task::from_elf build_vm_space failed: name={}, err={:?}",
+                    name,
+                    err
+                );
+                return None;
+            }
+        };
         let address_space = elf_info.address_space;
 
         let stack_info =
@@ -306,6 +324,8 @@ impl Task {
                     ss_flags: 0x2,
                     ss_size: 0,
                 },
+                fs_base: elf_info.tls,
+                gs_base: 0,
             }),
             send_sigchld_when_exit: false,
         };
@@ -321,16 +341,47 @@ impl Task {
         #[cfg(target_arch = "x86_64")]
         context.set_fs_base(elf_info.tls);
 
+        let cpus_allowed = 1 << cpu_id();
         let task_basic_info = TaskBasicInfo::new(task.tid.raw(), context);
-        let scheduling_info = TaskSchedulingInfo::new(task.tid.raw(), 0, 1 << cpu_id());
+        let scheduling_info = TaskSchedulingInfo::new(task.tid.raw(), 0, cpus_allowed);
         let task_meta = TaskMeta::new(task_basic_info, scheduling_info);
-        let k_stack_top = basic::add_one_task(task_meta).unwrap();
+        let k_stack_top = match basic::add_one_task(task_meta) {
+            Ok(k_stack_top) => k_stack_top,
+            Err(err) => {
+                println!(
+                    "Task::from_elf add_one_task failed: name={}, err={:?}",
+                    name,
+                    err
+                );
+                return None;
+            }
+        };
         task.kernel_stack = k_stack_top;
 
-        let user_sp = user_stack.init(&mut task.address_space.lock()).unwrap();
+        let user_sp = match user_stack.init(&mut task.address_space.lock()) {
+            Ok(user_sp) => user_sp,
+            Err(err) => {
+                println!(
+                    "Task::from_elf init user stack failed: name={}, err={:?}",
+                    name,
+                    err
+                );
+                return None;
+            }
+        };
         let trap_frame = task.trap_frame();
         *trap_frame = TrapFrame::new_user(elf_info.entry, user_sp, VirtAddr::from(k_stack_top));
         trap_frame.update_tp(VirtAddr::from(elf_info.tls)); // tp --> tls
+        println!(
+            "Task::from_elf success: name={}, tid={}, entry={:#x}, user_sp={:#x}, k_sp={:#x}, cpu_id={}, cpus_allowed={:#x}",
+            name,
+            task.tid(),
+            elf_info.entry.as_usize(),
+            user_sp.as_usize(),
+            k_stack_top,
+            cpu_id(),
+            cpus_allowed
+        );
         Some(task)
     }
 
@@ -364,11 +415,19 @@ impl Task {
             Some(Arc::downgrade(self))
         };
 
-        let (name, fs_info, stack) = (
+        let (name, fs_info, stack, fs_base, gs_base) = (
             inner.name.clone(),
             inner.fs_info.clone(),
             inner.stack.clone(),
+            inner.fs_base,
+            inner.gs_base,
         );
+
+        let child_fs_base = if clone_args.flags.contains(CloneFlags::CLONE_SETTLS) {
+            clone_args.tls
+        } else {
+            fs_base
+        };
 
         let mmap = self.mmap.clone();
 
@@ -433,6 +492,8 @@ impl Task {
                     ss_flags: 0x2,
                     ss_size: 0,
                 },
+                fs_base: child_fs_base,
+                gs_base,
             }),
             send_sigchld_when_exit: clone_args.sig == SignalNumber::SIGCHLD,
         };
@@ -503,6 +564,8 @@ impl Task {
         );
         // set the name of the process
         inner.name = elf_info.name;
+        inner.fs_base = elf_info.tls;
+        inner.gs_base = 0;
         // close file which contains FD_CLOEXEC flag
         // now we delete all fd
         // reset signal handler
