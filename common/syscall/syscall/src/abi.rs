@@ -18,6 +18,7 @@ pub fn normalize_syscall_call(
         0x3 => SYSCALL_CLOSE,
         0x4 => SYSCALL_FSTATAT,
         0x5 => SYSCALL_FSTAT,
+        0x6 => SYSCALL_FSTATAT,
         0x7 => SYSCALL_PPOLL,
         0x8 => SYSCALL_LSEEK,
         0x9 => SYSCALL_MMAP,
@@ -29,6 +30,8 @@ pub fn normalize_syscall_call(
         0x10 => SYSCALL_IOCTL,
         0x13 => SYSCALL_READV,
         0x14 => SYSCALL_WRITEV,
+        0x15 => SYSCALL_FACCESSAT,
+        0x16 => SYSCALL_PIPE2,
         0x18 => SYSCALL_YIELD,
         0x1c => SYSCALL_MADVISE,
         0x20 => SYSCALL_DUP,
@@ -48,6 +51,8 @@ pub fn normalize_syscall_call(
         0x36 => SYSCALL_SETSOCKOPT,
         0x37 => SYSCALL_GETSOCKOPT,
         0x38 => SYSCALL_CLONE,
+        0x39 => SYSCALL_CLONE,
+        0x3a => SYSCALL_CLONE,
         0x3b => SYSCALL_EXECVE,
         0x3c => SYSCALL_EXIT,
         0x3d => SYSCALL_WAIT4,
@@ -81,6 +86,7 @@ pub fn normalize_syscall_call(
         0x102 => SYSCALL_MKDIRAT,
         0x106 => SYSCALL_FSTATAT,
         0x107 => SYSCALL_UNLINKAT,
+        0x108 => SYSCALL_RENAMEAT2,
         0x10d => SYSCALL_FACCESSAT,
         0x10e => SYSCALL_PSELECT6,
         0x10f => SYSCALL_PPOLL,
@@ -117,6 +123,30 @@ pub fn normalize_syscall_call(
         mapped_syscall_id = SYSCALL_CLONE;
     }
 
+    if orig_syscall_id == 0x39 {
+        // fork() 等价于 clone(SIGCHLD, 0)
+        mapped_args[0] = signal::SignalNumber::SIGCHLD as usize;
+        mapped_args[1] = 0;
+        mapped_args[2] = 0;
+        mapped_args[3] = 0;
+        mapped_args[4] = 0;
+        mapped_args[5] = 0;
+        mapped_syscall_id = SYSCALL_CLONE;
+    }
+
+    if orig_syscall_id == 0x3a {
+        // vfork() 等价于 clone(CLONE_VFORK|CLONE_VM|SIGCHLD, 0)
+        mapped_args[0] = (task::CloneFlags::CLONE_VFORK | task::CloneFlags::CLONE_VM).bits()
+            as usize
+            | signal::SignalNumber::SIGCHLD as usize;
+        mapped_args[1] = 0;
+        mapped_args[2] = 0;
+        mapped_args[3] = 0;
+        mapped_args[4] = 0;
+        mapped_args[5] = 0;
+        mapped_syscall_id = SYSCALL_CLONE;
+    }
+
     if orig_syscall_id == 0x4 {
         mapped_args[0] = AT_FDCWD as usize;
         mapped_args[1] = args[0];
@@ -125,6 +155,39 @@ pub fn normalize_syscall_call(
         mapped_args[4] = 0;
         mapped_args[5] = 0;
         mapped_syscall_id = SYSCALL_FSTATAT;
+    }
+
+    if orig_syscall_id == 0x6 {
+        // x86 兼容路径里按 stat 语义处理，避免命令查找误判链接类型。
+        mapped_args[0] = AT_FDCWD as usize;
+        mapped_args[1] = args[0];
+        mapped_args[2] = args[1];
+        mapped_args[3] = 0;
+        mapped_args[4] = 0;
+        mapped_args[5] = 0;
+        mapped_syscall_id = SYSCALL_FSTATAT;
+    }
+
+    if orig_syscall_id == 0x15 {
+        // access(path, mode) -> faccessat(AT_FDCWD, path, mode, 0)
+        mapped_args[0] = AT_FDCWD as usize;
+        mapped_args[1] = args[0];
+        mapped_args[2] = args[1];
+        mapped_args[3] = 0;
+        mapped_args[4] = 0;
+        mapped_args[5] = 0;
+        mapped_syscall_id = SYSCALL_FACCESSAT;
+    }
+
+    if orig_syscall_id == 0x16 {
+        // pipe(pipefd) -> pipe2(pipefd, 0)
+        mapped_args[0] = args[0];
+        mapped_args[1] = 0;
+        mapped_args[2] = 0;
+        mapped_args[3] = 0;
+        mapped_args[4] = 0;
+        mapped_args[5] = 0;
+        mapped_syscall_id = SYSCALL_PIPE2;
     }
 
     if orig_syscall_id == 0x6f {

@@ -8,6 +8,7 @@ use interface::{InodeID, VfsDomain, VFS_ROOT_ID, VFS_STDIN_ID, VFS_STDOUT_ID};
 use shared_heap::{DBox, DVec};
 use spin::{Lazy, Once};
 use vfscore::utils::VfsFileStat;
+use vfscore::utils::VfsInodeMode;
 
 use crate::processor::current_task;
 
@@ -53,32 +54,42 @@ impl Drop for ShimFile {
     }
 }
 
-pub fn read_all(file_name: &str, buf: &mut Vec<u8>) -> bool {
+fn read_all_inner(file_name: &str, buf: &mut Vec<u8>, require_exec: bool) -> AlienResult<()> {
     let task = current_task();
     let path = if task.is_none() {
         (VFS_ROOT_ID, VFS_ROOT_ID)
     } else {
-        user_path_at(AT_FDCWD, file_name).unwrap()
+        user_path_at(AT_FDCWD, file_name)?
     };
     let name = DVec::from_slice(file_name.as_bytes());
-    let res = VFS_DOMAIN.get().unwrap().vfs_open(
+    let file_id = VFS_DOMAIN.get().unwrap().vfs_open(
         path.1,
         &name,
         name.len(),
         0,
         OpenFlags::O_RDONLY.bits(),
-    );
-    if res.is_err() {
-        info!("open file {} failed, err:{:?}", file_name, res.err());
-        return false;
+    )?;
+    let shim_file = ShimFile::new(file_id);
+    let attr = shim_file.get_attr()?;
+    if require_exec {
+        let mode = VfsInodeMode::from_bits_truncate(attr.st_mode as u32);
+        if !mode.intersects(
+            VfsInodeMode::OWNER_EXEC | VfsInodeMode::GROUP_EXEC | VfsInodeMode::OTHER_EXEC,
+        ) {
+            warn!(
+                "exec file {} denied: mode={:#o}",
+                file_name,
+                attr.st_mode & 0o777
+            );
+            return Err(AlienError::EACCES);
+        }
     }
-    let shim_file = ShimFile::new(res.unwrap());
-    let size = shim_file.get_attr().unwrap().st_size;
+    let size = attr.st_size;
     let mut offset = 0;
     let mut tmp = DVec::new_uninit(1024);
     let mut res;
     while offset < size {
-        (tmp, res) = shim_file.read_at(offset, tmp).unwrap();
+        (tmp, res) = shim_file.read_at(offset, tmp)?;
         if res == 0 {
             log::warn!(
                 "read_all short read: file={}, offset={}, size={}",
@@ -86,13 +97,26 @@ pub fn read_all(file_name: &str, buf: &mut Vec<u8>) -> bool {
                 offset,
                 size
             );
-            return false;
+            return Err(AlienError::EIO);
         }
         offset += res as u64;
         buf.extend_from_slice(&tmp.as_slice()[..res]);
     }
     assert_eq!(offset, size);
+    Ok(())
+}
+
+pub fn read_all(file_name: &str, buf: &mut Vec<u8>) -> bool {
+    let res = read_all_inner(file_name, buf, false);
+    if res.is_err() {
+        info!("open/read file {} failed, err:{:?}", file_name, res.err());
+        return false;
+    }
     true
+}
+
+pub fn read_exec_all(file_name: &str, buf: &mut Vec<u8>) -> AlienResult<()> {
+    read_all_inner(file_name, buf, true)
 }
 
 fn user_path_at(fd: isize, path: &str) -> AlienResult<(InodeID, InodeID)> {

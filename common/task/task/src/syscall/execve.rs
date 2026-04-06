@@ -29,16 +29,19 @@ pub fn do_execve(
         args.insert(0, "sh\0".to_string());
     }
     let mut data = Vec::new();
-    if crate::vfs_shim::read_all(&path_str, &mut data) {
-        let res = task.do_execve(&path_str, data.as_slice(), args, envs);
-        if res.is_err() {
-            return Err(AlienError::ENOEXEC);
+    match crate::vfs_shim::read_exec_all(&path_str, &mut data) {
+        Ok(()) => {
+            let res = task.do_execve(&path_str, data.as_slice(), args, envs);
+            if res.is_err() {
+                return Err(AlienError::ENOEXEC);
+            }
+            info!("exec {} success", path_str);
+            Ok(0)
         }
-        info!("exec {} success", path_str);
-        Ok(0)
-    } else {
-        warn!("exec {} failed", path_str);
-        Err(AlienError::ENOENT)
+        Err(e) => {
+            warn!("exec {} failed: {:?}", path_str, e);
+            Err(e)
+        }
     }
 }
 

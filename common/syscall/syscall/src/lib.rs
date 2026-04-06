@@ -84,8 +84,8 @@ impl SysCallDomain for SysCallDomainImpl {
         // if syscall_id != SYSCALL_YIELD &&  syscall_id != SYSCALL_WAIT4{
         //     println!("[tid:{:?}] syscall: {}",tid, syscall_name,);
         // }
-        if syscall_id == 2003 {
-            let log_info = format!("[tid:{:?}] syscall: 2003", tid);
+        if syscall_id == SYSCALL_DOMAIN_TEST {
+            let log_info = format!("[tid:{:?}] syscall: {}", tid, SYSCALL_DOMAIN_TEST);
             self.logger.log(
                 interface::Level::Info,
                 &DVec::from_slice(log_info.as_bytes()),
@@ -450,7 +450,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 args[4],
             ),
             SYSCALL_GETRANDOM => sys_random(&self.task_domain, args[0], args[1], args[2]),
-            888 => sys_load_domain(
+            SYSCALL_LOAD_DOMAIN => sys_load_domain(
                 &self.task_domain,
                 &self.vfs_domain,
                 args[0],
@@ -458,7 +458,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 args[2],
                 args[3],
             ),
-            889 => sys_replace_domain(
+            SYSCALL_REPLACE_DOMAIN => sys_replace_domain(
                 &self.task_domain,
                 args[0],
                 args[1],
@@ -466,9 +466,9 @@ impl SysCallDomain for SysCallDomainImpl {
                 args[3],
                 args[4] as u8,
             ),
-            2000 => sys_framebuffer(&self.task_domain, self.gpu_domain.as_ref()),
-            2001 => sys_framebuffer_flush(self.gpu_domain.as_ref()),
-            2002 => sys_event_get(
+            SYSCALL_FRAMEBUFFER => sys_framebuffer(&self.task_domain, self.gpu_domain.as_ref()),
+            SYSCALL_FRAMEBUFFER_FLUSH => sys_framebuffer_flush(self.gpu_domain.as_ref()),
+            SYSCALL_EVENT_GET => sys_event_get(
                 &self.task_domain,
                 self.input_domain.as_slice(),
                 args[0],
