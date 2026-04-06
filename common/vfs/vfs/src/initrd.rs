@@ -46,11 +46,6 @@ fn parse_initrd_data(root: Arc<dyn VfsDentry>, initrd: &[u8]) -> AlienResult<()>
                 let target = core::str::from_utf8(data).unwrap();
                 path.join(name)?.symlink(target)?;
             } else if mode.contains(Mode::REGULAR_FILE) {
-                // 命令文件兜底补执行位，避免权限位丢失。
-                let inode_mode = inode_mode
-                    | VfsInodeMode::OWNER_EXEC
-                    | VfsInodeMode::GROUP_EXEC
-                    | VfsInodeMode::OTHER_EXEC;
                 let f = path.join(name)?.open(Some(inode_mode))?;
                 let data = DVec::from_other_rvec_slice(entry.file());
                 f.inode()?.write_at(0, &data)?;
