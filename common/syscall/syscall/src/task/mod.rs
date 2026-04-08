@@ -30,6 +30,57 @@ pub fn sys_wait4(
     task_domain.do_wait4(pid as isize, status, options as u32, rusage)
 }
 
+pub fn sys_waitid(
+    task_domain: &Arc<dyn TaskDomain>,
+    which: usize,
+    pid: usize,
+    infop: usize,
+    options: usize,
+    rusage: usize,
+) -> AlienResult<isize> {
+    const P_ALL: usize = 0;
+    const P_PID: usize = 1;
+    const CLD_EXITED: i32 = 1;
+
+    if infop == 0 {
+        return Err(AlienError::EFAULT);
+    }
+
+    let allowed = basic::constants::task::WaitOptions::WNOHANG
+        | basic::constants::task::WaitOptions::WUNTRACED
+        | basic::constants::task::WaitOptions::WEXITED
+        | basic::constants::task::WaitOptions::WCONTINUED
+        | basic::constants::task::WaitOptions::WNOWAIT;
+    let raw_options = options as u32;
+    if raw_options & !allowed.bits() != 0 {
+        return Err(AlienError::EINVAL);
+    }
+    if raw_options & basic::constants::task::WaitOptions::WEXITED.bits() == 0 {
+        return Err(AlienError::EINVAL);
+    }
+
+    let wait_pid = match which {
+        P_ALL => -1,
+        P_PID => pid as isize,
+        _ => return Err(AlienError::ENOSYS),
+    };
+
+    let waited_pid = task_domain.do_wait4(wait_pid, 0, raw_options, rusage)?;
+
+    let mut siginfo = basic::constants::signal::SigInfo::default();
+    if waited_pid == 0 {
+        siginfo.si_signo = 0;
+        siginfo.si_errno = 0;
+        siginfo.si_code = 0;
+    } else {
+        siginfo.si_signo = basic::constants::signal::SignalNumber::SIGCHLD as i32;
+        siginfo.si_errno = 0;
+        siginfo.si_code = CLD_EXITED;
+    }
+    task_domain.write_val_to_user(infop, &siginfo)?;
+    Ok(0)
+}
+
 pub fn sys_execve(
     task_domain: &Arc<dyn TaskDomain>,
     filename_ptr: usize,

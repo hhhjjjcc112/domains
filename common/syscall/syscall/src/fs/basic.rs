@@ -13,7 +13,7 @@ use interface::{TaskDomain, VfsDomain};
 use log::{debug, info};
 use pod::Pod;
 use shared_heap::{DBox, DVec};
-use vfscore::utils::{VfsFileStat, VfsPollEvents};
+use vfscore::utils::{VfsFileStat, VfsFsStat, VfsPollEvents};
 
 use crate::fs::user_path_at;
 
@@ -557,7 +557,7 @@ pub fn sys_ppoll(
     task_domain.copy_from_user(fds_ptr, fds.as_mut_slice())?;
     debug!("fds: {:?}", fds);
     let wait_time = if sigmask == usize::MAX {
-        if timeout == 0 {
+        if timeout == usize::MAX {
             None
         } else {
             let sec = timeout / 1000;
@@ -754,4 +754,337 @@ pub fn sys_renameat2(
     log::info!("<sys_renameat2> res: {:?}", res);
     res?;
     Ok(0)
+}
+
+pub fn sys_truncate(
+    vfs: &Arc<dyn VfsDomain>,
+    task_domain: &Arc<dyn TaskDomain>,
+    path_ptr: usize,
+    len: usize,
+) -> AlienResult<isize> {
+    if path_ptr == 0 {
+        return Err(AlienError::EFAULT);
+    }
+    let mut tmp_buf = DVec::<u8>::new_uninit(256);
+    let path_len;
+    (tmp_buf, path_len) = task_domain.read_string_from_user(path_ptr, tmp_buf)?;
+    let path = core::str::from_utf8(&tmp_buf.as_slice()[..path_len]).unwrap();
+    info!("<sys_truncate> path: {:?}, len: {}", path, len);
+    let (_, current_root) = user_path_at(task_domain, AT_FDCWD, path)?;
+    let inode = vfs.vfs_open(current_root, &tmp_buf, path_len, 0, OpenFlags::O_RDWR.bits())?;
+    let res = vfs.vfs_ftruncate(inode, len as u64);
+    let _ = vfs.vfs_close(inode);
+    res?;
+    Ok(0)
+}
+
+pub fn sys_statfs(
+    vfs: &Arc<dyn VfsDomain>,
+    task_domain: &Arc<dyn TaskDomain>,
+    path: usize,
+    statbuf: usize,
+) -> AlienResult<isize> {
+    if path == 0 || statbuf == 0 {
+        return Err(AlienError::EFAULT);
+    }
+
+    let tmp_buf = DVec::<u8>::new_uninit(256);
+    let (tmp_buf, len) = task_domain.read_string_from_user(path, tmp_buf)?;
+    let path_str = core::str::from_utf8(&tmp_buf.as_slice()[..len]).unwrap();
+    info!("<sys_statfs> path: {:?}", path_str);
+
+    let (_, current_root) = user_path_at(task_domain, AT_FDCWD, path_str)?;
+    let inode = vfs.vfs_open(current_root, &tmp_buf, len, 0, OpenFlags::O_RDONLY.bits())?;
+    let vfs_stat = vfs.vfs_statfs(inode, DBox::<VfsFsStat>::new_uninit());
+    let _ = vfs.vfs_close(inode);
+    let vfs_stat = vfs_stat?;
+
+    let fs_stat = map_vfs_fs_stat(*vfs_stat);
+    task_domain.write_val_to_user(statbuf, &fs_stat)?;
+    Ok(0)
+}
+
+pub fn sys_fstatfs(
+    vfs: &Arc<dyn VfsDomain>,
+    task_domain: &Arc<dyn TaskDomain>,
+    fd: usize,
+    statbuf: usize,
+) -> AlienResult<isize> {
+    if statbuf == 0 {
+        return Err(AlienError::EFAULT);
+    }
+    let inode = task_domain.get_fd(fd)?;
+    let vfs_stat = vfs.vfs_statfs(inode, DBox::<VfsFsStat>::new_uninit())?;
+    let fs_stat = map_vfs_fs_stat(*vfs_stat);
+    task_domain.write_val_to_user(statbuf, &fs_stat)?;
+    Ok(0)
+}
+
+fn map_vfs_fs_stat(vfs_stat: VfsFsStat) -> FsStat {
+    FsStat {
+        f_type: vfs_stat.f_type,
+        f_bsize: vfs_stat.f_bsize,
+        f_blocks: vfs_stat.f_blocks,
+        f_bfree: vfs_stat.f_bfree,
+        f_bavail: vfs_stat.f_bavail,
+        f_files: vfs_stat.f_files,
+        f_ffree: vfs_stat.f_ffree,
+        f_fsid: vfs_stat.f_fsid,
+        f_namelen: vfs_stat.f_namelen,
+        f_frsize: vfs_stat.f_frsize,
+        f_flags: vfs_stat.f_flags,
+        f_spare: vfs_stat.f_spare,
+    }
+}
+
+pub fn sys_mount(
+    _vfs: &Arc<dyn VfsDomain>,
+    _task_domain: &Arc<dyn TaskDomain>,
+    _source: usize,
+    _target: usize,
+    _fs_type: usize,
+    _flags: usize,
+    _data: usize,
+) -> AlienResult<isize> {
+    todo!("mount 暂未实现")
+}
+
+pub fn sys_linkat(
+    vfs: &Arc<dyn VfsDomain>,
+    task_domain: &Arc<dyn TaskDomain>,
+    olddirfd: usize,
+    oldpath: usize,
+    newdirfd: usize,
+    newpath: usize,
+    flags: usize,
+) -> AlienResult<isize> {
+    if oldpath == 0 || newpath == 0 {
+        return Err(AlienError::EFAULT);
+    }
+
+    let old_tmp_buf = DVec::<u8>::new_uninit(256);
+    let new_tmp_buf = DVec::<u8>::new_uninit(256);
+    let (old_tmp_buf, old_len) = task_domain.read_string_from_user(oldpath, old_tmp_buf)?;
+    let (new_tmp_buf, new_len) = task_domain.read_string_from_user(newpath, new_tmp_buf)?;
+    let old_path = core::str::from_utf8(&old_tmp_buf.as_slice()[..old_len]).unwrap();
+    let new_path = core::str::from_utf8(&new_tmp_buf.as_slice()[..new_len]).unwrap();
+
+    let link_flags = LinkFlags::from_bits(flags as u32).ok_or(AlienError::EINVAL)?;
+    if link_flags.contains(LinkFlags::AT_EMPTY_PATH) {
+        return Err(AlienError::ENOSYS);
+    }
+
+    info!(
+        "<sys_linkat> olddirfd: {}, oldpath: {:?}, newdirfd: {}, newpath: {:?}, flags: {:?}",
+        olddirfd as isize,
+        old_path,
+        newdirfd as isize,
+        new_path,
+        link_flags
+    );
+
+    let (_, old_root) = user_path_at(task_domain, olddirfd as isize, old_path)?;
+    let (_, new_root) = user_path_at(task_domain, newdirfd as isize, new_path)?;
+    vfs.vfs_linkat(
+        old_root,
+        &old_tmp_buf,
+        old_len,
+        new_root,
+        &new_tmp_buf,
+        new_len,
+        link_flags.bits(),
+    )?;
+    Ok(0)
+}
+
+pub fn sys_symlinkat(
+    vfs: &Arc<dyn VfsDomain>,
+    task_domain: &Arc<dyn TaskDomain>,
+    oldpath: usize,
+    newdirfd: usize,
+    newpath: usize,
+) -> AlienResult<isize> {
+    if oldpath == 0 || newpath == 0 {
+        return Err(AlienError::EFAULT);
+    }
+
+    let old_tmp_buf = DVec::<u8>::new_uninit(256);
+    let new_tmp_buf = DVec::<u8>::new_uninit(256);
+    let (old_tmp_buf, old_len) = task_domain.read_string_from_user(oldpath, old_tmp_buf)?;
+    let (new_tmp_buf, new_len) = task_domain.read_string_from_user(newpath, new_tmp_buf)?;
+    let target = core::str::from_utf8(&old_tmp_buf.as_slice()[..old_len]).unwrap();
+    let new_path = core::str::from_utf8(&new_tmp_buf.as_slice()[..new_len]).unwrap();
+
+    info!(
+        "<sys_symlinkat> target: {:?}, newdirfd: {}, newpath: {:?}",
+        target,
+        newdirfd as isize,
+        new_path
+    );
+
+    let (_, new_root) = user_path_at(task_domain, newdirfd as isize, new_path)?;
+    vfs.vfs_symlinkat(&old_tmp_buf, old_len, new_root, &new_tmp_buf, new_len)?;
+    Ok(0)
+}
+
+pub fn sys_readlinkat(
+    vfs: &Arc<dyn VfsDomain>,
+    task_domain: &Arc<dyn TaskDomain>,
+    dirfd: usize,
+    path: usize,
+    buf: usize,
+    bufsiz: usize,
+) -> AlienResult<isize> {
+    if path == 0 || (buf == 0 && bufsiz != 0) {
+        return Err(AlienError::EFAULT);
+    }
+    if bufsiz == 0 {
+        return Ok(0);
+    }
+
+    let tmp_path = DVec::<u8>::new_uninit(256);
+    let (tmp_path, path_len) = task_domain.read_string_from_user(path, tmp_path)?;
+    let path = core::str::from_utf8(&tmp_path.as_slice()[..path_len]).unwrap();
+    info!(
+        "<sys_readlinkat> dirfd: {}, path: {:?}, buf: {:#x}, bufsiz: {}",
+        dirfd as isize,
+        path,
+        buf,
+        bufsiz
+    );
+
+    let (_, root) = user_path_at(task_domain, dirfd as isize, path)?;
+    let mut out_buf = DVec::<u8>::new_uninit(bufsiz);
+    let read_len;
+    (out_buf, read_len) = vfs.vfs_readlinkat(root, &tmp_path, path_len, out_buf)?;
+
+    let copy_len = min(read_len, bufsiz);
+    task_domain.copy_to_user(buf, &out_buf.as_slice()[..copy_len])?;
+    Ok(copy_len as isize)
+}
+
+pub fn sys_setxattr(
+    _vfs: &Arc<dyn VfsDomain>,
+    _task_domain: &Arc<dyn TaskDomain>,
+    _path: usize,
+    _name: usize,
+    _value: usize,
+    _size: usize,
+    _flags: usize,
+) -> AlienResult<isize> {
+    todo!("setxattr 暂未实现")
+}
+
+pub fn sys_lsetxattr(
+    _vfs: &Arc<dyn VfsDomain>,
+    _task_domain: &Arc<dyn TaskDomain>,
+    _path: usize,
+    _name: usize,
+    _value: usize,
+    _size: usize,
+    _flags: usize,
+) -> AlienResult<isize> {
+    todo!("lsetxattr 暂未实现")
+}
+
+pub fn sys_fsetxattr(
+    _vfs: &Arc<dyn VfsDomain>,
+    _task_domain: &Arc<dyn TaskDomain>,
+    _fd: usize,
+    _name: usize,
+    _value: usize,
+    _size: usize,
+    _flags: usize,
+) -> AlienResult<isize> {
+    todo!("fsetxattr 暂未实现")
+}
+
+pub fn sys_getxattr(
+    _vfs: &Arc<dyn VfsDomain>,
+    _task_domain: &Arc<dyn TaskDomain>,
+    _path: usize,
+    _name: usize,
+    _value: usize,
+    _size: usize,
+) -> AlienResult<isize> {
+    todo!("getxattr 暂未实现")
+}
+
+pub fn sys_lgetxattr(
+    _vfs: &Arc<dyn VfsDomain>,
+    _task_domain: &Arc<dyn TaskDomain>,
+    _path: usize,
+    _name: usize,
+    _value: usize,
+    _size: usize,
+) -> AlienResult<isize> {
+    todo!("lgetxattr 暂未实现")
+}
+
+pub fn sys_fgetxattr(
+    _vfs: &Arc<dyn VfsDomain>,
+    _task_domain: &Arc<dyn TaskDomain>,
+    _fd: usize,
+    _name: usize,
+    _value: usize,
+    _size: usize,
+) -> AlienResult<isize> {
+    todo!("fgetxattr 暂未实现")
+}
+
+pub fn sys_listxattr(
+    _vfs: &Arc<dyn VfsDomain>,
+    _task_domain: &Arc<dyn TaskDomain>,
+    _path: usize,
+    _list: usize,
+    _size: usize,
+) -> AlienResult<isize> {
+    todo!("listxattr 暂未实现")
+}
+
+pub fn sys_llistxattr(
+    _vfs: &Arc<dyn VfsDomain>,
+    _task_domain: &Arc<dyn TaskDomain>,
+    _path: usize,
+    _list: usize,
+    _size: usize,
+) -> AlienResult<isize> {
+    todo!("llistxattr 暂未实现")
+}
+
+pub fn sys_flistxattr(
+    _vfs: &Arc<dyn VfsDomain>,
+    _task_domain: &Arc<dyn TaskDomain>,
+    _fd: usize,
+    _list: usize,
+    _size: usize,
+) -> AlienResult<isize> {
+    todo!("flistxattr 暂未实现")
+}
+
+pub fn sys_removexattr(
+    _vfs: &Arc<dyn VfsDomain>,
+    _task_domain: &Arc<dyn TaskDomain>,
+    _path: usize,
+    _name: usize,
+) -> AlienResult<isize> {
+    todo!("removexattr 暂未实现")
+}
+
+pub fn sys_lremovexattr(
+    _vfs: &Arc<dyn VfsDomain>,
+    _task_domain: &Arc<dyn TaskDomain>,
+    _path: usize,
+    _name: usize,
+) -> AlienResult<isize> {
+    todo!("lremovexattr 暂未实现")
+}
+
+pub fn sys_fremovexattr(
+    _vfs: &Arc<dyn VfsDomain>,
+    _task_domain: &Arc<dyn TaskDomain>,
+    _fd: usize,
+    _name: usize,
+) -> AlienResult<isize> {
+    todo!("fremovexattr 暂未实现")
 }

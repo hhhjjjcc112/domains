@@ -12,7 +12,7 @@ use core::sync::atomic::{AtomicBool, AtomicU64};
 use basic::{
     constants::{
         epoll::{EpollCtlOp, EpollEvent},
-        io::{Fcntl64Cmd, OpenFlags, PollEvents, SeekFrom, UnlinkatFlags},
+        io::{Fcntl64Cmd, LinkFlags, OpenFlags, PollEvents, SeekFrom, UnlinkatFlags},
         time::TimeSpec,
     },
     sync::{Mutex, RwLock},
@@ -30,7 +30,8 @@ use vfscore::{
     dentry::VfsDentry,
     path::{SysContext, VfsPath},
     utils::{
-        VfsFileStat, VfsInodeMode, VfsNodeType, VfsPollEvents, VfsRenameFlag, VfsTime, VfsTimeSpec,
+        VfsFileStat, VfsFsStat, VfsInodeMode, VfsNodeType, VfsPollEvents, VfsRenameFlag, VfsTime,
+        VfsTimeSpec,
     },
 };
 
@@ -177,6 +178,18 @@ impl VfsDomain for VfsDomainImpl {
         *attr = vfs_attr;
         Ok(attr)
     }
+
+    fn vfs_statfs(
+        &self,
+        inode: InodeID,
+        mut fs_stat: DBox<VfsFsStat>,
+    ) -> AlienResult<DBox<VfsFsStat>> {
+        let file = get_file(inode).ok_or(AlienError::EINVAL)?;
+        let stat = file.inode().get_super_block()?.stat_fs()?;
+        *fs_stat = stat;
+        Ok(fs_stat)
+    }
+
     fn vfs_read_at(
         &self,
         inode: InodeID,
@@ -345,6 +358,73 @@ impl VfsDomain for VfsDomainImpl {
             path.unlink()?;
         }
         Ok(())
+    }
+
+    fn vfs_linkat(
+        &self,
+        old_root: InodeID,
+        old_path: &DVec<u8>,
+        old_len: usize,
+        new_root: InodeID,
+        new_path: &DVec<u8>,
+        new_len: usize,
+        flags: u32,
+    ) -> AlienResult<()> {
+        let flags = LinkFlags::from_bits(flags).ok_or(AlienError::EINVAL)?;
+        if flags.contains(LinkFlags::AT_EMPTY_PATH) {
+            return Err(AlienError::ENOSYS);
+        }
+
+        let old_start = get_file(old_root).ok_or(AlienError::EINVAL)?;
+        let new_start = get_file(new_root).ok_or(AlienError::EINVAL)?;
+        let old_name = core::str::from_utf8(&old_path.as_slice()[..old_len]).unwrap();
+        let new_name = core::str::from_utf8(&new_path.as_slice()[..new_len]).unwrap();
+
+        let old_path = VfsPath::new(system_root_fs(), old_start.dentry()).join(old_name)?;
+        let old_dt = if flags.contains(LinkFlags::AT_SYMLINK_FOLLOW) {
+            old_path.open(None)?
+        } else {
+            old_path.open2(None, OpenFlags::O_NOFOLLOW)?
+        };
+
+        let new_path = VfsPath::new(system_root_fs(), new_start.dentry()).join(new_name)?;
+        new_path.link(old_dt)?;
+        Ok(())
+    }
+
+    fn vfs_symlinkat(
+        &self,
+        target: &DVec<u8>,
+        target_len: usize,
+        new_root: InodeID,
+        new_path: &DVec<u8>,
+        new_len: usize,
+    ) -> AlienResult<()> {
+        let new_start = get_file(new_root).ok_or(AlienError::EINVAL)?;
+        let target = core::str::from_utf8(&target.as_slice()[..target_len]).unwrap();
+        let new_name = core::str::from_utf8(&new_path.as_slice()[..new_len]).unwrap();
+
+        let new_path = VfsPath::new(system_root_fs(), new_start.dentry()).join(new_name)?;
+        new_path.symlink(target)?;
+        Ok(())
+    }
+
+    fn vfs_readlinkat(
+        &self,
+        root: InodeID,
+        path: &DVec<u8>,
+        path_len: usize,
+        buf: DVec<u8>,
+    ) -> AlienResult<(DVec<u8>, usize)> {
+        let start = get_file(root).ok_or(AlienError::EINVAL)?;
+        let path = core::str::from_utf8(&path.as_slice()[..path_len]).unwrap();
+        let path = VfsPath::new(system_root_fs(), start.dentry()).join(path)?;
+        let dentry = path.open2(None, OpenFlags::O_NOFOLLOW)?;
+        let inode = dentry.inode()?;
+        if inode.inode_type() != VfsNodeType::SymLink {
+            return Err(AlienError::EINVAL);
+        }
+        inode.readlink(buf).map_err(Into::into)
     }
 
     fn do_fcntl(&self, inode: InodeID, cmd: usize, args: usize) -> AlienResult<isize> {

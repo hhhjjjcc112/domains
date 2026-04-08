@@ -11,6 +11,19 @@ pub fn normalize_syscall_call(
     let orig_syscall_id = raw_syscall_id(syscall_id);
     let mut mapped_args = args;
     let mut mapped_syscall_id = match orig_syscall_id {
+        // 扩展属性
+        0x0bc => SYSCALL_SETXATTR,
+        0x0bd => SYSCALL_LSETXATTR,
+        0x0be => SYSCALL_FSETXATTR,
+        0x0bf => SYSCALL_GETXATTR,
+        0x0c0 => SYSCALL_LGETXATTR,
+        0x0c1 => SYSCALL_FGETXATTR,
+        0x0c2 => SYSCALL_LISTXATTR,
+        0x0c3 => SYSCALL_LLISTXATTR,
+        0x0c4 => SYSCALL_FLISTXATTR,
+        0x0c5 => SYSCALL_REMOVEXATTR,
+        0x0c6 => SYSCALL_LREMOVEXATTR,
+        0x0c7 => SYSCALL_FREMOVEXATTR,
         // 基础文件与内存
         0x0 => SYSCALL_READ,
         0x1 => SYSCALL_WRITE,
@@ -35,6 +48,7 @@ pub fn normalize_syscall_call(
         0x18 => SYSCALL_YIELD,
         0x1c => SYSCALL_MADVISE,
         0x20 => SYSCALL_DUP,
+        0x23 => SYSCALL_NANOSLEEP,
         0x27 => SYSCALL_GETPID,
         0x28 => SYSCALL_SENDFILE,
         0x29 => SYSCALL_SOCKET,
@@ -59,9 +73,11 @@ pub fn normalize_syscall_call(
         0x3f => SYSCALL_UNAME,
         0x48 => SYSCALL_FCNTL,
         0x4a => SYSCALL_FSYNC,
+        0x4c => SYSCALL_TRUNCATE,
         0x4d => SYSCALL_FTRUNCATE,
         0x4f => SYSCALL_GETCWD,
         0x50 => SYSCALL_CHDIR,
+        0x53 => SYSCALL_MKDIRAT,
         0x60 => SYSCALL_GET_TIME_OF_DAY,
         0x66 => SYSCALL_GETUID,
         0x68 => SYSCALL_GETGID,
@@ -73,8 +89,11 @@ pub fn normalize_syscall_call(
         0x70 => SYSCALL_SETSID,
         0x79 => SYSCALL_GETPGID,
         0x83 => SYSCALL_SIGALTSTACK,
+        0x89 => SYSCALL_STATFS,
+        0x8a => SYSCALL_FSTATFS,
         0x8c => SYSCALL_GET_PRIORITY,
         0x8d => SYSCALL_SET_PRIORITY,
+        0xa5 => SYSCALL_MOUNT,
         0xba => SYSCALL_GETTID,
         0xca => SYSCALL_FUTEX,
         0xd9 => SYSCALL_GETDENTS64,
@@ -87,6 +106,9 @@ pub fn normalize_syscall_call(
         0x106 => SYSCALL_FSTATAT,
         0x107 => SYSCALL_UNLINKAT,
         0x108 => SYSCALL_RENAMEAT2,
+        0x109 => SYSCALL_LINKAT,
+        0x10a => SYSCALL_SYMLINKAT,
+        0x10b => SYSCALL_READLINKAT,
         0x10d => SYSCALL_FACCESSAT,
         0x10e => SYSCALL_PSELECT6,
         0x10f => SYSCALL_PPOLL,
@@ -98,9 +120,11 @@ pub fn normalize_syscall_call(
         0x12e => SYSCALL_PRLIMIT,
         0x13c => SYSCALL_RENAMEAT2,
         0x13e => SYSCALL_GETRANDOM,
+        0xf7 => SYSCALL_WAITID,
         #[cfg(target_arch = "x86_64")]
         X86_64_RAW_SYSCALL_ARCH_PRCTL => SYSCALL_ARCH_PRCTL,
-        _ => return Ok((orig_syscall_id, args)),
+        // 未识别 raw 号保持 ABI tag，交给分发层统一 ENOSYS。
+        _ => return Ok((syscall_id, args)),
     };
 
     if orig_syscall_id == 0x2 {
@@ -179,6 +203,17 @@ pub fn normalize_syscall_call(
         mapped_syscall_id = SYSCALL_FACCESSAT;
     }
 
+    if orig_syscall_id == 0x53 {
+        // mkdir(path, mode) -> mkdirat(AT_FDCWD, path, mode)
+        mapped_args[0] = AT_FDCWD as usize;
+        mapped_args[1] = args[0];
+        mapped_args[2] = args[1];
+        mapped_args[3] = 0;
+        mapped_args[4] = 0;
+        mapped_args[5] = 0;
+        mapped_syscall_id = SYSCALL_MKDIRAT;
+    }
+
     if orig_syscall_id == 0x16 {
         // pipe(pipefd) -> pipe2(pipefd, 0)
         mapped_args[0] = args[0];
@@ -202,7 +237,15 @@ pub fn normalize_syscall_call(
 
     if orig_syscall_id == 0x7 {
         let timeout_ms = args[2] as isize;
-        mapped_args[2] = if timeout_ms < 0 { 0 } else { timeout_ms as usize };
+        // x86 poll(timeout_ms):
+        // - timeout < 0: 永久阻塞
+        // - timeout = 0: 立即返回
+        // 这里把 -1 映射为 usize::MAX，供 sys_ppoll 识别为“无限等待”。
+        mapped_args[2] = if timeout_ms < 0 {
+            usize::MAX
+        } else {
+            timeout_ms as usize
+        };
         mapped_args[3] = usize::MAX;
         mapped_args[4] = 0;
         mapped_args[5] = 0;

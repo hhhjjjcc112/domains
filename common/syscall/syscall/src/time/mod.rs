@@ -3,7 +3,7 @@ use alloc::sync::Arc;
 use basic::{
     config::CLOCK_FREQ,
     constants::time::{ClockId, TimeSpec, TimeVal},
-    time::{read_timer, TimeNow},
+    time::{read_timer, TimeNow, ToClock},
     AlienError, AlienResult,
 };
 use interface::TaskDomain;
@@ -34,5 +34,33 @@ pub fn sys_clock_gettime(
 pub fn sys_get_time_of_day(task_domain: &Arc<dyn TaskDomain>, tv: usize) -> AlienResult<isize> {
     let time = TimeVal::now();
     task_domain.write_val_to_user(tv, &time)?;
+    Ok(0)
+}
+
+pub fn sys_nanosleep(
+    task_domain: &Arc<dyn TaskDomain>,
+    req: usize,
+    rem: usize,
+) -> AlienResult<isize> {
+    if req == 0 {
+        return Err(AlienError::EFAULT);
+    }
+    let req_ts = task_domain.read_val_from_user::<TimeSpec>(req)?;
+    if req_ts.tv_nsec >= 1_000_000_000 {
+        return Err(AlienError::EINVAL);
+    }
+    let deadline = TimeSpec::now()
+        .to_clock()
+        .saturating_add(req_ts.to_clock());
+    loop {
+        if TimeSpec::now().to_clock() >= deadline {
+            break;
+        }
+        basic::yield_now()?;
+    }
+    if rem != 0 {
+        let remain = TimeSpec::new(0, 0);
+        task_domain.write_val_to_user(rem, &remain)?;
+    }
     Ok(0)
 }

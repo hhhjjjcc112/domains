@@ -51,10 +51,14 @@ impl SysCallDomainImpl {
         }
     }
 
-    fn net_stack_domain(&self) -> AlienResult<&Arc<dyn NetDomain>> {
-        self.net_stack_domain
-            .as_ref()
-            .ok_or(AlienError::ENOSYS)
+    fn net_stack_domain(&self) -> AlienResult<Arc<dyn NetDomain>> {
+        if let Some(net_stack_domain) = self.net_stack_domain.as_ref() {
+            return Ok(net_stack_domain.clone());
+        }
+        match basic::get_domain("net_stack") {
+            Some(DomainType::NetDomain(net_stack_domain)) => Ok(net_stack_domain),
+            _ => Err(AlienError::ENOSYS),
+        }
     }
 }
 
@@ -128,6 +132,15 @@ impl SysCallDomain for SysCallDomainImpl {
                 args[1],
                 args[2],
             ),
+            SYSCALL_MOUNT => sys_mount(
+                &self.vfs_domain,
+                &self.task_domain,
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+                args[4],
+            ),
             SYSCALL_UNLINKAT => sys_unlinkat(
                 &self.vfs_domain,
                 &self.task_domain,
@@ -135,8 +148,33 @@ impl SysCallDomain for SysCallDomainImpl {
                 args[1],
                 args[2],
             ),
+            SYSCALL_LINKAT => sys_linkat(
+                &self.vfs_domain,
+                &self.task_domain,
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+                args[4],
+            ),
+            SYSCALL_SYMLINKAT => {
+                sys_symlinkat(&self.vfs_domain, &self.task_domain, args[0], args[1], args[2])
+            }
+            SYSCALL_READLINKAT => sys_readlinkat(
+                &self.vfs_domain,
+                &self.task_domain,
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+            ),
             SYSCALL_FTRUNCATE => {
                 sys_ftruncate(&self.vfs_domain, &self.task_domain, args[0], args[1])
+            }
+            SYSCALL_TRUNCATE => sys_truncate(&self.vfs_domain, &self.task_domain, args[0], args[1]),
+            SYSCALL_STATFS => sys_statfs(&self.vfs_domain, &self.task_domain, args[0], args[1]),
+            SYSCALL_FSTATFS => {
+                sys_fstatfs(&self.vfs_domain, &self.task_domain, args[0], args[1])
             }
             SYSCALL_FACCESSAT => sys_faccessat(
                 &self.vfs_domain,
@@ -245,6 +283,75 @@ impl SysCallDomain for SysCallDomainImpl {
                 args[2],
                 args[3],
             ),
+            SYSCALL_SETXATTR => sys_setxattr(
+                &self.vfs_domain,
+                &self.task_domain,
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+                args[4],
+            ),
+            SYSCALL_LSETXATTR => sys_lsetxattr(
+                &self.vfs_domain,
+                &self.task_domain,
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+                args[4],
+            ),
+            SYSCALL_FSETXATTR => sys_fsetxattr(
+                &self.vfs_domain,
+                &self.task_domain,
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+                args[4],
+            ),
+            SYSCALL_GETXATTR => sys_getxattr(
+                &self.vfs_domain,
+                &self.task_domain,
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+            ),
+            SYSCALL_LGETXATTR => sys_lgetxattr(
+                &self.vfs_domain,
+                &self.task_domain,
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+            ),
+            SYSCALL_FGETXATTR => sys_fgetxattr(
+                &self.vfs_domain,
+                &self.task_domain,
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+            ),
+            SYSCALL_LISTXATTR => {
+                sys_listxattr(&self.vfs_domain, &self.task_domain, args[0], args[1], args[2])
+            }
+            SYSCALL_LLISTXATTR => {
+                sys_llistxattr(&self.vfs_domain, &self.task_domain, args[0], args[1], args[2])
+            }
+            SYSCALL_FLISTXATTR => {
+                sys_flistxattr(&self.vfs_domain, &self.task_domain, args[0], args[1], args[2])
+            }
+            SYSCALL_REMOVEXATTR => {
+                sys_removexattr(&self.vfs_domain, &self.task_domain, args[0], args[1])
+            }
+            SYSCALL_LREMOVEXATTR => {
+                sys_lremovexattr(&self.vfs_domain, &self.task_domain, args[0], args[1])
+            }
+            SYSCALL_FREMOVEXATTR => {
+                sys_fremovexattr(&self.vfs_domain, &self.task_domain, args[0], args[1])
+            }
             SYSCALL_EXIT => sys_exit(&self.task_domain, args[0]),
             SYSCALL_EXIT_GROUP => sys_exit_group(&self.task_domain, args[0]),
             SYSCALL_SET_TID_ADDRESS => sys_set_tid_address(&self.task_domain, args[0]),
@@ -253,6 +360,7 @@ impl SysCallDomain for SysCallDomainImpl {
             #[cfg(target_arch = "x86_64")]
             SYSCALL_ARCH_PRCTL => sys_arch_prctl(&self.task_domain, args[0], args[1]),
             SYSCALL_CLOCK_GETTIME => sys_clock_gettime(&self.task_domain, args[0], args[1]),
+            SYSCALL_NANOSLEEP => sys_nanosleep(&self.task_domain, args[0], args[1]),
             SYSCALL_YIELD => sys_yield(),
             SYSCALL_FUTEX => sys_futex(
                 &self.task_domain,
@@ -287,7 +395,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 sys_socket(
                     &self.task_domain,
                     &self.vfs_domain,
-                    net_stack_domain,
+                    &net_stack_domain,
                     args[0],
                     args[1],
                     args[2],
@@ -298,7 +406,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 sys_socket_pair(
                     &self.task_domain,
                     &self.vfs_domain,
-                    net_stack_domain,
+                    &net_stack_domain,
                     args[0],
                     args[1],
                     args[2],
@@ -310,7 +418,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 sys_bind(
                     &self.task_domain,
                     &self.vfs_domain,
-                    net_stack_domain,
+                    &net_stack_domain,
                     args[0],
                     args[1],
                     args[2],
@@ -321,7 +429,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 sys_listen(
                     &self.task_domain,
                     &self.vfs_domain,
-                    net_stack_domain,
+                    &net_stack_domain,
                     args[0],
                     args[1],
                 )
@@ -331,7 +439,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 sys_accept(
                     &self.task_domain,
                     &self.vfs_domain,
-                    net_stack_domain,
+                    &net_stack_domain,
                     args[0],
                     args[1],
                     args[2],
@@ -342,7 +450,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 sys_connect(
                     &self.task_domain,
                     &self.vfs_domain,
-                    net_stack_domain,
+                    &net_stack_domain,
                     args[0],
                     args[1],
                     args[2],
@@ -353,7 +461,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 sys_getsockname(
                     &self.task_domain,
                     &self.vfs_domain,
-                    net_stack_domain,
+                    &net_stack_domain,
                     args[0],
                     args[1],
                     args[2],
@@ -364,7 +472,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 sys_getpeername(
                     &self.task_domain,
                     &self.vfs_domain,
-                    net_stack_domain,
+                    &net_stack_domain,
                     args[0],
                     args[1],
                     args[2],
@@ -375,7 +483,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 sys_sendto(
                     &self.task_domain,
                     &self.vfs_domain,
-                    net_stack_domain,
+                    &net_stack_domain,
                     [args[0], args[1], args[2], args[3], args[4], args[5]],
                 )
             }
@@ -384,7 +492,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 sys_recvfrom(
                     &self.task_domain,
                     &self.vfs_domain,
-                    net_stack_domain,
+                    &net_stack_domain,
                     [args[0], args[1], args[2], args[3], args[4], args[5]],
                 )
             }
@@ -393,7 +501,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 sys_set_socket_opt(
                     &self.task_domain,
                     &self.vfs_domain,
-                    net_stack_domain,
+                    &net_stack_domain,
                     [args[0], args[1], args[2], args[3], args[4]],
                 )
             }
@@ -402,7 +510,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 sys_get_socket_opt(
                     &self.task_domain,
                     &self.vfs_domain,
-                    net_stack_domain,
+                    &net_stack_domain,
                     [args[0], args[1], args[2], args[3], args[4]],
                 )
             }
@@ -411,7 +519,7 @@ impl SysCallDomain for SysCallDomainImpl {
                 sys_shutdown(
                     &self.task_domain,
                     &self.vfs_domain,
-                    net_stack_domain,
+                    &net_stack_domain,
                     args[0],
                     args[1],
                 )
@@ -438,6 +546,9 @@ impl SysCallDomain for SysCallDomainImpl {
             ),
             SYSCALL_MPROTECT => sys_mprotect(&self.task_domain, args[0], args[1], args[2]),
             SYSCALL_WAIT4 => sys_wait4(&self.task_domain, args[0], args[1], args[2], args[3]),
+            SYSCALL_WAITID => {
+                sys_waitid(&self.task_domain, args[0], args[1], args[2], args[3], args[4])
+            }
             SYSCALL_PRLIMIT => sys_prlimit64(&self.task_domain, args[0], args[1], args[2], args[3]),
             SYSCALL_MADVISE => sys_madvise(&self.task_domain, args[0], args[1], args[2]),
             SYSCALL_RENAMEAT2 => sys_renameat2(
