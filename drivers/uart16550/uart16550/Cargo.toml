@@ -9,5 +9,4 @@ edition = "2024"
 interface = { path = "../../../../domain-lib/interface" }
 shared_heap = { path = "../../../../domain-lib/shared_heap" }
 basic = { path = "../../../../domain-lib/basic" }
-
-raw_uart16550 = { path = "../../../../utils/uart16550", package = "uart16550" }
+safe_uart_16550 = { path = "../../../../utils/safe_uart_16550" }

@@ -6,33 +6,27 @@ use alloc::boxed::Box;
 use core::{fmt::Debug, ops::Range};
 
 use basic::{
-    io::SafeIORegion,
     println,
-    sync::{Once, OnceGet},
-    AlienResult,
+    sync::{Mutex, Once, OnceGet},
+    AlienError, AlienResult,
 };
 #[cfg(target_arch = "riscv64")]
 use interface::define_unwind_for_UartDomain;
 use interface::{Basic, DeviceBase, UartDomain};
-use raw_uart16550::{InterruptTypes, Uart16550, Uart16550IO};
+use safe_uart_16550::{SafeUart16550, UartError};
 use shared_heap::DVec;
-
-#[derive(Debug)]
-pub struct SafeIORegionWrapper(SafeIORegion);
-
-impl Uart16550IO<u8> for SafeIORegionWrapper {
-    fn read_at(&self, offset: usize) -> u8 {
-        self.0.read_at(offset).unwrap()
-    }
-
-    fn write_at(&self, offset: usize, value: u8) {
-        self.0.write_at(offset, value).unwrap()
-    }
-}
 
 #[derive(Default)]
 struct UartDomainImpl {
-    uart: Once<Uart16550<u8>>,
+    uart: Once<Mutex<SafeUart16550>>,
+}
+
+#[inline]
+fn map_uart_error(err: UartError) -> AlienError {
+    match err {
+        UartError::InvalidAddressRange | UartError::UnsupportedTransport => AlienError::EINVAL,
+        UartError::IoRegionAccessFailed => AlienError::EIO,
+    }
 }
 
 impl Debug for UartDomainImpl {
@@ -57,63 +51,58 @@ impl UartDomain for UartDomainImpl {
     fn init(&self, address_range: &Range<usize>) -> AlienResult<()> {
         let region = address_range;
         println!("uart_addr: {:#x}-{:#x}", region.start, region.end);
-        let io_region = SafeIORegion::from(region.clone());
-        let uart = Uart16550::new(Box::new(SafeIORegionWrapper(io_region)));
-        self.uart.call_once(|| uart);
+        // 域内保持纯 safe，unsafe 由 utils/safe_uart_16550 内部封装。
+        #[cfg(target_arch = "x86_64")]
+        let mut uart = SafeUart16550::new_pio(region).map_err(map_uart_error)?;
+        #[cfg(target_arch = "riscv64")]
+        let mut uart = SafeUart16550::new_mmio(region).map_err(map_uart_error)?;
+        uart.init();
+        self.uart.call_once(|| Mutex::new(uart));
         self.enable_receive_interrupt()?;
         println!("init uart success");
         Ok(())
     }
 
     fn putc(&self, ch: u8) -> AlienResult<()> {
-        let uart = self.uart.get_must();
+        let mut uart = self.uart.get_must().lock();
         if ch == b'\n' {
-            uart.write(&[b'\r']);
+            uart.putc(b'\r');
         }
-        uart.write(&[ch]);
+        uart.putc(ch);
         Ok(())
     }
 
     fn getc(&self) -> AlienResult<Option<u8>> {
-        let mut buf = [0];
-        let c = self.uart.get_must().read(&mut buf);
-        assert!(c <= 1);
-        if c == 0 {
-            Ok(None)
-        } else {
-            Ok(Some(buf[0]))
-        }
+        Ok(self.uart.get_must().lock().getc_nonblocking())
     }
 
     fn put_bytes(&self, buf: &DVec<u8>) -> AlienResult<usize> {
-        let w = self.uart.get_must().write(buf.as_slice());
-        Ok(w)
+        let mut uart = self.uart.get_must().lock();
+        Ok(uart.put_bytes(buf.as_slice()))
     }
 
     fn have_data_to_get(&self) -> AlienResult<bool> {
-        let uart = self.uart.get_must();
-        let lsr = uart.lsr();
-        let region = uart.io_region();
-        let status = lsr.read(region);
-        Ok(status.is_data_ready())
+        self.uart
+            .get_must()
+            .lock()
+            .have_data_to_get()
+            .map_err(map_uart_error)
     }
 
     fn enable_receive_interrupt(&self) -> AlienResult<()> {
-        let uart = self.uart.get_must();
-        let ier = uart.ier();
-        let region = uart.io_region();
-        let inter = InterruptTypes::ZERO;
-        ier.write(region, inter.enable_rda());
-        Ok(())
+        self.uart
+            .get_must()
+            .lock()
+            .enable_receive_interrupt()
+            .map_err(map_uart_error)
     }
 
     fn disable_receive_interrupt(&self) -> AlienResult<()> {
-        let uart = self.uart.get_must();
-        let ier = uart.ier();
-        let region = uart.io_region();
-        let inter = InterruptTypes::ZERO;
-        ier.write(region, inter.disable_rda());
-        Ok(())
+        self.uart
+            .get_must()
+            .lock()
+            .disable_receive_interrupt()
+            .map_err(map_uart_error)
     }
 }
 
