@@ -12,6 +12,7 @@ use interface::{NetDomain, SocketArgTuple, TaskDomain, VfsDomain};
 use log::error;
 use shared_heap::{DBox, DVec};
 
+/// socket：`domain` 是地址族，`s_type` 是 socket 类型，`protocol` 是协议号。
 pub fn sys_socket(
     task_domain: &Arc<dyn TaskDomain>,
     vfs_domain: &Arc<dyn VfsDomain>,
@@ -33,6 +34,7 @@ pub fn sys_socket(
     Ok(fd as isize)
 }
 
+/// socketpair：`domain/s_type/protocol` 决定 socket 对，`sv` 是用户态输出数组。
 pub fn sys_socket_pair(
     task_domain: &Arc<dyn TaskDomain>,
     vfs_domain: &Arc<dyn VfsDomain>,
@@ -61,6 +63,7 @@ pub fn sys_socket_pair(
     Ok(0)
 }
 
+/// bind：`fd` 是 socket fd，`addr/addr_len` 是用户态地址结构。
 pub fn sys_bind(
     task_domain: &Arc<dyn TaskDomain>,
     vfs_domain: &Arc<dyn VfsDomain>,
@@ -89,6 +92,7 @@ pub fn sys_bind(
     Ok(0)
 }
 
+/// listen：`fd` 是 socket fd，`backlog` 是监听队列长度。
 pub fn sys_listen(
     task_domain: &Arc<dyn TaskDomain>,
     vfs_domain: &Arc<dyn VfsDomain>,
@@ -103,6 +107,7 @@ pub fn sys_listen(
     Ok(0)
 }
 
+/// accept：`fd` 是监听 socket，`addr/addr_len` 是返回的对端地址缓冲区。
 pub fn sys_accept(
     task_domain: &Arc<dyn TaskDomain>,
     vfs_domain: &Arc<dyn VfsDomain>,
@@ -118,6 +123,7 @@ pub fn sys_accept(
     let inode_id = task_domain.get_fd(fd)?;
     let socket_id = vfs_domain.socket_id(inode_id)?;
     loop {
+        // 继续等待连接完成。
         let new_socket_id = net_stack_domain.accept(socket_id);
         match new_socket_id {
             Ok(new_socket_id) => {
@@ -175,6 +181,7 @@ pub fn sys_connect(
     }
 }
 
+/// recvfrom：`fd` 是 socket fd，`buf/len` 是接收缓冲区，`addr/addr_len` 是可选对端地址输出。
 pub fn sys_recvfrom(
     task_domain: &Arc<dyn TaskDomain>,
     vfs_domain: &Arc<dyn VfsDomain>,
@@ -227,6 +234,8 @@ pub fn sys_recvfrom(
         // check if there is a EINTR signal
     }
 }
+
+/// sendto：`fd` 是 socket fd，`buf/len` 是发送缓冲区，`addr/addr_len` 是可选目标地址。
 pub fn sys_sendto(
     task_domain: &Arc<dyn TaskDomain>,
     vfs_domain: &Arc<dyn VfsDomain>,
@@ -259,6 +268,8 @@ pub fn sys_sendto(
         .sendto(socket_id, &data, remote_addr)
         .map(|len| len as isize)
 }
+
+/// getsockname：`fd` 是 socket fd，`addr/addr_len` 是本地地址输出缓冲区。
 pub fn sys_getsockname(
     task_domain: &Arc<dyn TaskDomain>,
     vfs_domain: &Arc<dyn VfsDomain>,
@@ -282,6 +293,7 @@ pub fn sys_getsockname(
     Ok(0)
 }
 
+/// getpeername：`fd` 是 socket fd，`addr/addr_len` 是远端地址输出缓冲区。
 pub fn sys_getpeername(
     task_domain: &Arc<dyn TaskDomain>,
     vfs_domain: &Arc<dyn VfsDomain>,
@@ -305,6 +317,7 @@ pub fn sys_getpeername(
     Ok(0)
 }
 
+/// setsockopt：`fd` 是 socket fd，`level/opt_name/opt_value/opt_len` 是选项参数。
 pub fn sys_set_socket_opt(
     task_domain: &Arc<dyn TaskDomain>,
     vfs_domain: &Arc<dyn VfsDomain>,
@@ -339,6 +352,7 @@ pub fn sys_set_socket_opt(
     Ok(0)
 }
 
+/// getsockopt：`fd` 是 socket fd，`level/opt_name/opt_value/opt_len` 是选项参数。
 pub fn sys_get_socket_opt(
     task_domain: &Arc<dyn TaskDomain>,
     vfs_domain: &Arc<dyn VfsDomain>,
@@ -395,6 +409,7 @@ pub fn sys_get_socket_opt(
     Ok(0)
 }
 
+/// shutdown：`fd` 是 socket fd，`how` 是关闭方向。
 pub fn sys_shutdown(
     task_domain: &Arc<dyn TaskDomain>,
     vfs_domain: &Arc<dyn VfsDomain>,

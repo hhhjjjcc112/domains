@@ -9,8 +9,10 @@ edition = "2024"
 basic = { path = "../../../../domain-lib/basic" }
 interface = { path = "../../../../domain-lib/interface" }
 shared_heap = { path = "../../../../domain-lib/shared_heap" }
+pconst = { path = "../../../../utils/pconst" }
 
 pod = { git = "https://github.com/asterinas/pod", rev = "d7dba56" }
 vfscore = { path = "../../../../rvfs-ref/vfscore-ref", package = "vfscore-ref" , features = ["linux_error"] }
 bit_field = "0.10"
 log = "0"
+oorandom = "11.1.3"

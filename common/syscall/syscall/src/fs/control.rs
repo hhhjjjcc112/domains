@@ -1,12 +1,13 @@
 use alloc::sync::Arc;
 
 use basic::{
-    constants::io::{Fcntl64Cmd, TeletypeCommand},
+    constants::io::{Fcntl64Cmd, OpenFlags, TeletypeCommand},
     AlienError, AlienResult,
 };
 use interface::{TaskDomain, VfsDomain};
 use log::{debug, info};
 
+/// ioctl：`fd` 是目标文件描述符，`request` 是命令号，`argp` 是用户态参数指针。
 pub fn sys_ioctl(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -24,6 +25,8 @@ pub fn sys_ioctl(
     info!("<sys_ioctl> res:{:?}", res);
     res.map(|e| e as isize)
 }
+
+/// fcntl：`fd` 是目标描述符，`cmd` 是操作号，`arg` 是附加参数。
 pub fn sys_fcntl(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -56,10 +59,12 @@ pub fn sys_fcntl(
     }
 }
 
+/// dup：复制 `oldfd`，返回新的文件描述符。
 pub fn sys_dup(task_domain: &Arc<dyn TaskDomain>, oldfd: usize) -> AlienResult<isize> {
     task_domain.do_dup(oldfd, None)
 }
 
+/// dup2：把 `oldfd` 复制到 `newfd`；两者相同则直接返回 `newfd`。
 pub fn sys_dup2(
     task_domain: &Arc<dyn TaskDomain>,
     oldfd: usize,
@@ -71,4 +76,29 @@ pub fn sys_dup2(
     let new_fd = task_domain.do_dup(oldfd, Some(newfd));
     info!("<sys_dup2> oldfd: {:?} newfd: {:?} ", oldfd, new_fd);
     new_fd
+}
+
+/// dup3：把 `oldfd` 复制到 `newfd`，并处理最小 `O_CLOEXEC` 语义。
+pub fn sys_dup3(
+    vfs: &Arc<dyn VfsDomain>,
+    task_domain: &Arc<dyn TaskDomain>,
+    oldfd: usize,
+    newfd: usize,
+    flags: usize,
+) -> AlienResult<isize> {
+    const FD_CLOEXEC: usize = 1;
+
+    if oldfd == newfd {
+        return Err(AlienError::EINVAL);
+    }
+    if flags & !(OpenFlags::O_CLOEXEC.bits() as usize) != 0 {
+        return Err(AlienError::EINVAL);
+    }
+
+    let new_fd = task_domain.do_dup(oldfd, Some(newfd))? as usize;
+    if flags & (OpenFlags::O_CLOEXEC.bits() as usize) != 0 {
+        let file = task_domain.get_fd(new_fd)?;
+        vfs.do_fcntl(file, Fcntl64Cmd::F_SETFD as usize, FD_CLOEXEC)?;
+    }
+    Ok(new_fd as isize)
 }

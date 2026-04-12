@@ -4,6 +4,7 @@ use basic::{config::FRAME_SIZE, AlienError, AlienResult};
 use interface::{BufInputDomain, GpuDomain, TaskDomain};
 use log::info;
 
+/// framebuffer_flush：刷新当前 GPU 帧缓冲。
 pub fn sys_framebuffer_flush(gpu: Option<&Arc<dyn GpuDomain>>) -> AlienResult<isize> {
     info!("<sys_framebuffer_flush>");
     let gpu = gpu.ok_or(AlienError::EINVAL)?;
@@ -11,6 +12,7 @@ pub fn sys_framebuffer_flush(gpu: Option<&Arc<dyn GpuDomain>>) -> AlienResult<is
     Ok(0)
 }
 
+/// framebuffer：`task_domain` 用于建立设备映射，返回映射到用户态的地址。
 pub fn sys_framebuffer(
     task_domain: &Arc<dyn TaskDomain>,
     gpu: Option<&Arc<dyn GpuDomain>>,
@@ -23,6 +25,7 @@ pub fn sys_framebuffer(
     Ok(device_mmap)
 }
 
+/// event_get：`input` 是输入域列表，`event_buf` 是用户态输出缓冲区，`len` 是最多取回的事件数。
 pub fn sys_event_get(
     task_domain: &Arc<dyn TaskDomain>,
     input: &[Arc<dyn BufInputDomain>],

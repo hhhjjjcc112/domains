@@ -6,6 +6,7 @@ use basic::{
         io::{Dirent64, DirentType, OpenFlags, PollEvents, SeekFrom},
         LinuxErrno,
     },
+    println_color,
     sync::Mutex,
     AlienResult,
 };
@@ -18,7 +19,6 @@ use vfscore::{
     dentry::VfsDentry,
     error::VfsError,
     inode::VfsInode,
-    path::VfsPath,
     utils::{VfsFileStat, VfsNodeType, VfsPollEvents},
 };
 
@@ -260,12 +260,16 @@ impl File for KernelFile {
     fn truncate(&self, len: u64) -> AlienResult<()> {
         let open_flag = self.meta.lock().open_flag;
         if !open_flag.contains(OpenFlags::O_WRONLY) & !open_flag.contains(OpenFlags::O_RDWR) {
+            println_color!(
+                31,
+                "[truncate_trace] deny file={}, len={}, open_flag={:?}",
+                self.dentry.name(),
+                len,
+                open_flag
+            );
             return Err(LinuxErrno::EINVAL);
         }
-        let dt = self.dentry();
-        VfsPath::new(system_root_fs(), dt)
-            .truncate(len)
-            .map_err(Into::into)
+        self.dentry.inode()?.truncate(len).map_err(Into::into)
     }
     fn is_readable(&self) -> bool {
         let open_flag = self.meta.lock().open_flag;

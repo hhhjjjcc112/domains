@@ -1,7 +1,7 @@
 use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
 use core::cmp::min;
 
-use basic::{sync::Mutex, AlienError, AlienResult};
+use basic::{sync::Mutex, AlienResult};
 
 /// 用于记录一个进程等待一个 futex 的相关信息
 #[allow(unused)]
@@ -57,22 +57,22 @@ impl FutexWaitManager {
     }
     /// 唤醒 futex 上的至多 num 个等待的进程
     pub fn wake(&mut self, futex: usize, num: usize, bitset: u32) -> AlienResult<usize> {
-        if let Some(waiters) = self.map.get_mut(&futex) {
-            let min_index = min(num, waiters.len());
-            let mut count = 0;
-            for i in 0..min_index {
-                if (waiters[i].bitset & bitset) != 0 {
-                    let tid = waiters[i].wake();
-                    basic::wake_up_wait_task(tid)?;
-                    waiters.remove(i);
-                    count += 1;
-                }
+        let Some(waiters) = self.map.get_mut(&futex) else {
+            return Ok(0);
+        };
+        let mut count = 0;
+        let mut index = 0;
+        while index < waiters.len() && count < num {
+            if (waiters[index].bitset & bitset) != 0 {
+                let tid = waiters[index].wake();
+                basic::wake_up_wait_task(tid)?;
+                waiters.remove(index);
+                count += 1;
+            } else {
+                index += 1;
             }
-            Ok(count)
-        } else {
-            // println_color!(31,"futex {} not found", futex);
-            Err(AlienError::EINVAL)
         }
+        Ok(count)
     }
 
     /// 将原来等待在 old_futex 上至多 num 个进程转移到 requeue_futex 上等待，返回转移的进程数
@@ -85,20 +85,19 @@ impl FutexWaitManager {
         if num == 0 {
             return Ok(0);
         }
-        // move waiters
-        let mut waiters = self.map.remove(&old_futex).unwrap();
-        // create new waiters
-        let new_waiters = self.map.entry(requeue_futex).or_insert(Vec::new());
-        let min_index = min(num, waiters.len());
-        error!("requeue {} waiters", min_index);
-        for _ in 0..min_index {
-            let waiter = waiters.pop().unwrap();
-            new_waiters.push(waiter);
-        }
-        // insert old waiters
+        let Some(mut waiters) = self.map.remove(&old_futex) else {
+            return Ok(0);
+        };
+        let move_count = min(num, waiters.len());
+        let split_index = waiters.len() - move_count;
+        let moved_waiters: Vec<_> = waiters.drain(split_index..).collect();
+        self.map
+            .entry(requeue_futex)
+            .or_insert(Vec::new())
+            .extend(moved_waiters);
         if !waiters.is_empty() {
             self.map.insert(old_futex, waiters);
         }
-        Ok(min_index)
+        Ok(move_count)
     }
 }

@@ -2,7 +2,6 @@ use alloc::sync::Arc;
 
 use basic::{
     constants::{ipc::FutexOp, time::TimeSpec},
-    println_color,
     sync::Mutex,
     time::{TimeNow, ToClock},
     AlienError, AlienResult,
@@ -26,7 +25,7 @@ pub fn futex(
     uaddr2: usize,
     val3: u32,
 ) -> AlienResult<isize> {
-    let futex_op = FutexOp::try_from(futex_op).unwrap();
+    let futex_op = FutexOp::try_from(futex_op).map_err(|_| AlienError::EINVAL)?;
     let task = current_task().unwrap();
     let mut futex_waiter = FUTEX_WAITER.lock();
     // let tid = task.tid();
@@ -128,7 +127,7 @@ pub fn futex(
             return Ok(res as isize);
         }
         _ => {
-            panic!("futex: unimplemented futex_op: {:?}", futex_op);
+            return Err(AlienError::ENOSYS);
         }
     }
     Ok(0)

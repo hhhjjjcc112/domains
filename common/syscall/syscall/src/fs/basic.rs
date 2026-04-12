@@ -5,18 +5,20 @@ use basic::{
     config::MAX_FD_NUM,
     constants::{io::*, time::TimeSpec, LinuxErrno, AT_FDCWD},
     println_color,
-    time::{read_time_us, TimeNow, ToClock},
+    time::{TimeNow, ToClock},
     AlienError, AlienResult,
 };
 use bit_field::BitField;
 use interface::{TaskDomain, VfsDomain};
 use log::{debug, info};
+use pconst::PPOLL_FROM_POLL_SIGMASK;
 use pod::Pod;
 use shared_heap::{DBox, DVec};
 use vfscore::utils::{VfsFileStat, VfsFsStat, VfsPollEvents};
 
 use crate::fs::user_path_at;
 
+/// openat：`dirfd` 是基准目录，`path` 是用户态路径指针，`flags/mode` 是打开标志和创建权限。
 pub fn sys_openat(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -42,6 +44,7 @@ pub fn sys_openat(
     Ok(fd as isize)
 }
 
+/// close：`fd` 是要关闭的文件描述符。
 pub fn sys_close(
     _vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -52,6 +55,7 @@ pub fn sys_close(
     Ok(0)
 }
 
+/// write：`fd` 是目标描述符，`buf/len` 是用户态输出缓冲区。
 pub fn sys_write(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -94,6 +98,7 @@ pub fn sys_write(
     w.map(|x| x as isize)
 }
 
+/// read：`fd` 是目标描述符，`buf/len` 是用户态输入缓冲区。
 pub fn sys_read(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -127,6 +132,7 @@ pub fn sys_read(
     Ok(r as isize)
 }
 
+/// readv：`fd` 是目标描述符，`iov/iovcnt` 是用户态 iovec 数组和长度。
 pub fn sys_readv(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -158,6 +164,7 @@ pub fn sys_readv(
     Ok(count as isize)
 }
 
+/// writev：`fd` 是目标描述符，`iov/iovcnt` 是用户态 iovec 数组和长度。
 pub fn sys_writev(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -188,6 +195,7 @@ pub fn sys_writev(
     Ok(count as isize)
 }
 
+/// fstatat：`dirfd` 是基准目录，`path_ptr` 是路径指针，`statbuf` 是输出缓冲区，`flags` 是查询标志。
 pub fn sys_fstatat(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -209,9 +217,13 @@ pub fn sys_fstatat(
         path_ptr, path, len, flag
     );
     let (_, current_root) = user_path_at(task_domain, dirfd as isize, path)?;
+    let mut open_flags = OpenFlags::empty();
+    if flag.contains(StatFlags::AT_SYMLINK_NOFOLLOW) {
+        open_flags |= OpenFlags::O_NOFOLLOW;
+    }
     // todo!(VfsFileStat == FileStat)
     let attr = DBox::<VfsFileStat>::new_uninit();
-    let file = vfs.vfs_open(current_root, &tmp_buf, len, 0, 0)?;
+    let file = vfs.vfs_open(current_root, &tmp_buf, len, 0, open_flags.bits() as usize)?;
     let stat = vfs.vfs_getattr(file, attr)?;
     let file_stat = FileStat::from(*stat);
     debug!("<sys_fstatat> file_stat: {:?}", file_stat);
@@ -220,6 +232,7 @@ pub fn sys_fstatat(
     Ok(0)
 }
 
+/// ftruncate：`fd` 是目标描述符，`len` 是新的文件长度。
 pub fn sys_ftruncate(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -231,6 +244,7 @@ pub fn sys_ftruncate(
     Ok(0)
 }
 
+/// faccessat：`dirfd` 是基准目录，`path` 是路径指针，`mode/flag` 是访问检查参数。
 pub fn sys_faccessat(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -259,6 +273,7 @@ pub fn sys_faccessat(
     Ok(0)
 }
 
+/// lseek：`fd` 是目标描述符，`offset/whence` 是偏移和基准位置。
 pub fn sys_lseek(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -272,6 +287,7 @@ pub fn sys_lseek(
     Ok(res as isize)
 }
 
+/// fstat：`fd` 是目标描述符，`statbuf` 是输出缓冲区。
 pub fn sys_fstat(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -289,6 +305,7 @@ pub fn sys_fstat(
     Ok(0)
 }
 
+/// fsync：`fd` 是目标描述符。
 pub fn sys_fsync(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -299,6 +316,7 @@ pub fn sys_fsync(
     Ok(0)
 }
 
+/// utimensat：`dirfd` 是基准目录，`path_ptr` 是路径，`times_ptr` 是时间数组，`_flags` 保留给 ABI。
 pub fn sys_utimensat(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -350,6 +368,7 @@ pub fn sys_utimensat(
     Ok(0)
 }
 
+/// sendfile：`out_fd/in_fd` 是输出和输入描述符，`offset_ptr` 是可选文件偏移，`count` 是最多传输字节数。
 pub fn sys_sendfile(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -399,6 +418,7 @@ pub fn sys_sendfile(
     Ok(total as isize)
 }
 
+/// pselect6 的参数打包；`nfds` 是监控上限，`readfds/writefds/exceptfds` 是位图指针，`timeout/sigmask` 是用户态结构指针。
 pub struct SelectArgs {
     pub nfds: usize,
     pub readfds: usize,
@@ -408,6 +428,7 @@ pub struct SelectArgs {
     pub sigmask: usize,
 }
 
+/// pselect6：`SelectArgs` 里打包了 fd 位图和超时/信号掩码指针。
 pub fn sys_pselect6(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -541,6 +562,7 @@ pub fn sys_pselect6(
     }
 }
 
+/// ppoll：`fds_ptr/nfds` 是 pollfd 数组，`timeout` 是超时指针或 poll 毫秒值，`sigmask` 是信号掩码参数。
 pub fn sys_ppoll(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -556,7 +578,7 @@ pub fn sys_ppoll(
     let mut fds = vec![0u8; core::mem::size_of::<PollFd>() * nfds];
     task_domain.copy_from_user(fds_ptr, fds.as_mut_slice())?;
     debug!("fds: {:?}", fds);
-    let wait_time = if sigmask == usize::MAX {
+    let wait_time = if sigmask == PPOLL_FROM_POLL_SIGMASK {
         if timeout == usize::MAX {
             None
         } else {
@@ -584,8 +606,8 @@ pub fn sys_ppoll(
                 debug!("[ppoll]: event: {:?}", event);
                 pfd.revents = PollEvents::from_bits_truncate(event.bits() as u32)
             } else {
-                // todo: error
-                pfd.events = PollEvents::EPOLLERR;
+                pfd.revents = PollEvents::EPOLLERR;
+                res += 1;
             }
             let range = (idx * core::mem::size_of::<PollFd>())
                 ..((idx + 1) * core::mem::size_of::<PollFd>());
@@ -608,6 +630,7 @@ pub fn sys_ppoll(
     }
 }
 
+/// getdents64：`fd` 是目录 fd，`buf/count` 是用户态目录项缓冲区。
 pub fn sys_getdents64(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -627,6 +650,7 @@ pub fn sys_getdents64(
     Ok(r as isize)
 }
 
+/// chdir：`path` 是用户态路径指针。
 pub fn sys_chdir(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -643,6 +667,7 @@ pub fn sys_chdir(
     Ok(0)
 }
 
+/// getcwd：`buf` 是输出缓冲区，`size` 是缓冲区长度。
 pub fn sys_getcwd(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -666,6 +691,7 @@ pub fn sys_getcwd(
     Ok(buf as isize)
 }
 
+/// mkdirat：`dirfd` 是基准目录，`path_ptr` 是路径，`mode` 是目录权限。
 pub fn sys_mkdirat(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -690,6 +716,7 @@ pub fn sys_mkdirat(
     Ok(0)
 }
 
+/// unlinkat：`dirfd` 是基准目录，`path_ptr` 是路径，`flags` 是删除标志。
 pub fn sys_unlinkat(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -707,6 +734,7 @@ pub fn sys_unlinkat(
     Ok(0)
 }
 
+/// renameat2：`olddirfd/oldpath` 和 `newdirfd/newpath` 是重命名两端，`flags` 是重命名标志。
 pub fn sys_renameat2(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -756,6 +784,7 @@ pub fn sys_renameat2(
     Ok(0)
 }
 
+/// truncate：`path_ptr` 是路径指针，`len` 是新的文件长度。
 pub fn sys_truncate(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -771,13 +800,20 @@ pub fn sys_truncate(
     let path = core::str::from_utf8(&tmp_buf.as_slice()[..path_len]).unwrap();
     info!("<sys_truncate> path: {:?}, len: {}", path, len);
     let (_, current_root) = user_path_at(task_domain, AT_FDCWD, path)?;
-    let inode = vfs.vfs_open(current_root, &tmp_buf, path_len, 0, OpenFlags::O_RDWR.bits())?;
+    let inode = vfs.vfs_open(
+        current_root,
+        &tmp_buf,
+        path_len,
+        0,
+        OpenFlags::O_RDWR.bits(),
+    )?;
     let res = vfs.vfs_ftruncate(inode, len as u64);
     let _ = vfs.vfs_close(inode);
     res?;
     Ok(0)
 }
 
+/// statfs：`path` 是路径指针，`statbuf` 是文件系统统计输出缓冲区。
 pub fn sys_statfs(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -804,6 +840,7 @@ pub fn sys_statfs(
     Ok(0)
 }
 
+/// fstatfs：`fd` 是目标描述符，`statbuf` 是文件系统统计输出缓冲区。
 pub fn sys_fstatfs(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -837,6 +874,7 @@ fn map_vfs_fs_stat(vfs_stat: VfsFsStat) -> FsStat {
     }
 }
 
+/// mount：`source/target/fs_type/flags/data` 保留 ABI 参数，但当前最小实现直接返回 ENOSYS。
 pub fn sys_mount(
     _vfs: &Arc<dyn VfsDomain>,
     _task_domain: &Arc<dyn TaskDomain>,
@@ -846,9 +884,10 @@ pub fn sys_mount(
     _flags: usize,
     _data: usize,
 ) -> AlienResult<isize> {
-    todo!("mount 暂未实现")
+    Err(AlienError::ENOSYS)
 }
 
+/// linkat：`olddirfd/oldpath` 和 `newdirfd/newpath` 是硬链接两端，`flags` 当前不支持 `AT_EMPTY_PATH`。
 pub fn sys_linkat(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -876,11 +915,7 @@ pub fn sys_linkat(
 
     info!(
         "<sys_linkat> olddirfd: {}, oldpath: {:?}, newdirfd: {}, newpath: {:?}, flags: {:?}",
-        olddirfd as isize,
-        old_path,
-        newdirfd as isize,
-        new_path,
-        link_flags
+        olddirfd as isize, old_path, newdirfd as isize, new_path, link_flags
     );
 
     let (_, old_root) = user_path_at(task_domain, olddirfd as isize, old_path)?;
@@ -897,6 +932,7 @@ pub fn sys_linkat(
     Ok(0)
 }
 
+/// symlinkat：`oldpath` 是符号链接目标，`newdirfd/newpath` 是新链接位置。
 pub fn sys_symlinkat(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -917,9 +953,7 @@ pub fn sys_symlinkat(
 
     info!(
         "<sys_symlinkat> target: {:?}, newdirfd: {}, newpath: {:?}",
-        target,
-        newdirfd as isize,
-        new_path
+        target, newdirfd as isize, new_path
     );
 
     let (_, new_root) = user_path_at(task_domain, newdirfd as isize, new_path)?;
@@ -927,6 +961,7 @@ pub fn sys_symlinkat(
     Ok(0)
 }
 
+/// readlinkat：`dirfd/path` 是符号链接位置，`buf/bufsiz` 是输出缓冲区。
 pub fn sys_readlinkat(
     vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -947,10 +982,7 @@ pub fn sys_readlinkat(
     let path = core::str::from_utf8(&tmp_path.as_slice()[..path_len]).unwrap();
     info!(
         "<sys_readlinkat> dirfd: {}, path: {:?}, buf: {:#x}, bufsiz: {}",
-        dirfd as isize,
-        path,
-        buf,
-        bufsiz
+        dirfd as isize, path, buf, bufsiz
     );
 
     let (_, root) = user_path_at(task_domain, dirfd as isize, path)?;
@@ -963,6 +995,7 @@ pub fn sys_readlinkat(
     Ok(copy_len as isize)
 }
 
+/// setxattr：`path/name/value/size/flags` 是扩展属性写入参数；当前最小实现直接返回 ENOSYS。
 pub fn sys_setxattr(
     _vfs: &Arc<dyn VfsDomain>,
     _task_domain: &Arc<dyn TaskDomain>,
@@ -972,9 +1005,10 @@ pub fn sys_setxattr(
     _size: usize,
     _flags: usize,
 ) -> AlienResult<isize> {
-    todo!("setxattr 暂未实现")
+    Err(AlienError::ENOSYS)
 }
 
+/// lsetxattr：`path/name/value/size/flags` 是扩展属性写入参数；当前最小实现直接返回 ENOSYS。
 pub fn sys_lsetxattr(
     _vfs: &Arc<dyn VfsDomain>,
     _task_domain: &Arc<dyn TaskDomain>,
@@ -984,9 +1018,10 @@ pub fn sys_lsetxattr(
     _size: usize,
     _flags: usize,
 ) -> AlienResult<isize> {
-    todo!("lsetxattr 暂未实现")
+    Err(AlienError::ENOSYS)
 }
 
+/// fsetxattr：`fd/name/value/size/flags` 是扩展属性写入参数；当前最小实现直接返回 ENOSYS。
 pub fn sys_fsetxattr(
     _vfs: &Arc<dyn VfsDomain>,
     _task_domain: &Arc<dyn TaskDomain>,
@@ -996,9 +1031,10 @@ pub fn sys_fsetxattr(
     _size: usize,
     _flags: usize,
 ) -> AlienResult<isize> {
-    todo!("fsetxattr 暂未实现")
+    Err(AlienError::ENOSYS)
 }
 
+/// getxattr：`path/name/value/size` 是扩展属性读取参数；当前最小实现直接返回 ENOSYS。
 pub fn sys_getxattr(
     _vfs: &Arc<dyn VfsDomain>,
     _task_domain: &Arc<dyn TaskDomain>,
@@ -1007,9 +1043,10 @@ pub fn sys_getxattr(
     _value: usize,
     _size: usize,
 ) -> AlienResult<isize> {
-    todo!("getxattr 暂未实现")
+    Err(AlienError::ENOSYS)
 }
 
+/// lgetxattr：`path/name/value/size` 是扩展属性读取参数；当前最小实现直接返回 ENOSYS。
 pub fn sys_lgetxattr(
     _vfs: &Arc<dyn VfsDomain>,
     _task_domain: &Arc<dyn TaskDomain>,
@@ -1018,9 +1055,10 @@ pub fn sys_lgetxattr(
     _value: usize,
     _size: usize,
 ) -> AlienResult<isize> {
-    todo!("lgetxattr 暂未实现")
+    Err(AlienError::ENOSYS)
 }
 
+/// fgetxattr：`fd/name/value/size` 是扩展属性读取参数；当前最小实现直接返回 ENOSYS。
 pub fn sys_fgetxattr(
     _vfs: &Arc<dyn VfsDomain>,
     _task_domain: &Arc<dyn TaskDomain>,
@@ -1029,9 +1067,10 @@ pub fn sys_fgetxattr(
     _value: usize,
     _size: usize,
 ) -> AlienResult<isize> {
-    todo!("fgetxattr 暂未实现")
+    Err(AlienError::ENOSYS)
 }
 
+/// listxattr：`path/list/size` 是扩展属性枚举参数；当前最小实现直接返回 ENOSYS。
 pub fn sys_listxattr(
     _vfs: &Arc<dyn VfsDomain>,
     _task_domain: &Arc<dyn TaskDomain>,
@@ -1039,9 +1078,10 @@ pub fn sys_listxattr(
     _list: usize,
     _size: usize,
 ) -> AlienResult<isize> {
-    todo!("listxattr 暂未实现")
+    Err(AlienError::ENOSYS)
 }
 
+/// llistxattr：`path/list/size` 是扩展属性枚举参数；当前最小实现直接返回 ENOSYS。
 pub fn sys_llistxattr(
     _vfs: &Arc<dyn VfsDomain>,
     _task_domain: &Arc<dyn TaskDomain>,
@@ -1049,9 +1089,10 @@ pub fn sys_llistxattr(
     _list: usize,
     _size: usize,
 ) -> AlienResult<isize> {
-    todo!("llistxattr 暂未实现")
+    Err(AlienError::ENOSYS)
 }
 
+/// flistxattr：`fd/list/size` 是扩展属性枚举参数；当前最小实现直接返回 ENOSYS。
 pub fn sys_flistxattr(
     _vfs: &Arc<dyn VfsDomain>,
     _task_domain: &Arc<dyn TaskDomain>,
@@ -1059,32 +1100,35 @@ pub fn sys_flistxattr(
     _list: usize,
     _size: usize,
 ) -> AlienResult<isize> {
-    todo!("flistxattr 暂未实现")
+    Err(AlienError::ENOSYS)
 }
 
+/// removexattr：`path/name` 是扩展属性删除参数；当前最小实现直接返回 ENOSYS。
 pub fn sys_removexattr(
     _vfs: &Arc<dyn VfsDomain>,
     _task_domain: &Arc<dyn TaskDomain>,
     _path: usize,
     _name: usize,
 ) -> AlienResult<isize> {
-    todo!("removexattr 暂未实现")
+    Err(AlienError::ENOSYS)
 }
 
+/// lremovexattr：`path/name` 是扩展属性删除参数；当前最小实现直接返回 ENOSYS。
 pub fn sys_lremovexattr(
     _vfs: &Arc<dyn VfsDomain>,
     _task_domain: &Arc<dyn TaskDomain>,
     _path: usize,
     _name: usize,
 ) -> AlienResult<isize> {
-    todo!("lremovexattr 暂未实现")
+    Err(AlienError::ENOSYS)
 }
 
+/// fremovexattr：`fd/name` 是扩展属性删除参数；当前最小实现直接返回 ENOSYS。
 pub fn sys_fremovexattr(
     _vfs: &Arc<dyn VfsDomain>,
     _task_domain: &Arc<dyn TaskDomain>,
     _fd: usize,
     _name: usize,
 ) -> AlienResult<isize> {
-    todo!("fremovexattr 暂未实现")
+    Err(AlienError::ENOSYS)
 }

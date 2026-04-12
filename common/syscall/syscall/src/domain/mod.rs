@@ -6,6 +6,7 @@ use log::warn;
 use shared_heap::{DBox, DVec};
 use vfscore::utils::VfsFileStat;
 
+/// load_domain：`fd` 指向域二进制，`ty` 是域类型，`domain_name`/`len` 是用户态名字。
 pub fn sys_load_domain(
     task_domain: &Arc<dyn TaskDomain>,
     vfs_domain: &Arc<dyn VfsDomain>,
@@ -38,6 +39,7 @@ pub fn sys_load_domain(
     Ok(0)
 }
 
+/// replace_domain：`old_domain_name`/`new_domain_name` 是域名，`ty` 是新域类型。
 pub fn sys_replace_domain(
     task_domain: &Arc<dyn TaskDomain>,
     old_domain_name: usize,

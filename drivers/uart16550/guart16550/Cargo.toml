@@ -12,7 +12,7 @@ shared_heap = { path = "../../../../domain-lib/shared_heap" }
 interface = { path = "../../../../domain-lib/interface",  features = ["domain"]  }
 malloc = { path = "../../../../domain-lib/malloc" }
 storage = { path = "../../../../domain-lib/storage", features = ["impl"] }
-uart16550 = { path = "../uart16550" }
+uart16550 = { package = "domain_uart16550", path = "../uart16550" }
 
 [features]
 default = ["rust-unwind"]

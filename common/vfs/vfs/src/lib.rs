@@ -157,9 +157,10 @@ impl VfsDomain for VfsDomainImpl {
             None
         };
         // println_color!(31,"vfs_open: path_name: {}, mode: {:?}", path_name, mode);
+        // 统一走 open2，便于 syscall 层通过 O_NOFOLLOW 控制符号链接语义。
         let path = VfsPath::new(root, start.dentry())
             .join(path_name)?
-            .open(mode)?;
+            .open2(mode, open_flags)?;
         let id = insert_dentry(path, open_flags);
         // println_color!(31,"vfs_open: path_name: {} with id: {}", path_name,id);
         Ok(id)

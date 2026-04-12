@@ -1,3 +1,89 @@
-[workspace]
-members = ["domain"]
-resolver = "2"
+[package]
+name = "domains"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common_scheduler = { path = "../domains/common_lib/common_scheduler" }
+domain = { path = "../domains/domain" }
+generic = { path = "../domains/common_lib/generic" }
+vfs_common = { path = "../domains/common_lib/vfs_common" }
+virtio_mmio_common = { path = "../domains/common_lib/virtio_mmio_common" }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+apic = { path = "../domains/common/apic/apic" }
+gapic = { path = "../domains/common/apic/gapic" }
+fifo_scheduler = { path = "../domains/common/fifo_scheduler/fifo_scheduler" }
+gfifo_scheduler = { path = "../domains/common/fifo_scheduler/gfifo_scheduler" }
+glogger = { path = "../domains/common/logger/glogger" }
+logger = { path = "../domains/common/logger/logger" }
+gnet_stack = { path = "../domains/common/net_stack/gnet_stack" }
+net_stack = { path = "../domains/common/net_stack/net_stack" }
+grandom_scheduler = { path = "../domains/common/random_scheduler/grandom_scheduler" }
+random_scheduler = { path = "../domains/common/random_scheduler/random_scheduler" }
+gsyscall = { path = "../domains/common/syscall/gsyscall" }
+syscall = { path = "../domains/common/syscall/syscall" }
+gtask = { path = "../domains/common/task/gtask" }
+task = { path = "../domains/common/task/task" }
+gvfs = { path = "../domains/common/vfs/gvfs" }
+vfs = { path = "../domains/common/vfs/vfs" }
+gvfs2 = { path = "../domains/common/vfs2/gvfs2" }
+vfs2 = { path = "../domains/common/vfs2/vfs2" }
+gxlogger = { path = "../domains/common/xlogger/gxlogger" }
+xlogger = { path = "../domains/common/xlogger/xlogger" }
+buf_input = { path = "../domains/drivers/buf_input/buf_input" }
+gbuf_input = { path = "../domains/drivers/buf_input/gbuf_input" }
+buf_uart = { path = "../domains/drivers/buf_uart/buf_uart" }
+gbuf_uart = { path = "../domains/drivers/buf_uart/gbuf_uart" }
+cache_blk = { path = "../domains/drivers/cache_blk/cache_blk" }
+ghpet = { path = "../domains/drivers/hpet/ghpet" }
+hpet = { path = "../domains/drivers/hpet/hpet" }
+gio_apic = { path = "../domains/drivers/io_apic/gio_apic" }
+io_apic = { path = "../domains/drivers/io_apic/io_apic" }
+glocal_apic = { path = "../domains/drivers/local_apic/glocal_apic" }
+local_apic = { path = "../domains/drivers/local_apic/local_apic" }
+gloopback = { path = "../domains/drivers/loopback/gloopback" }
+loopback = { path = "../domains/drivers/loopback/loopback" }
+gmem_block = { path = "../domains/drivers/mem_block/gmem_block" }
+mem_block = { path = "../domains/drivers/mem_block/mem_block" }
+gnull = { path = "../domains/drivers/null/gnull" }
+null = { path = "../domains/drivers/null/null" }
+grandom = { path = "../domains/drivers/random/grandom" }
+random = { path = "../domains/drivers/random/random" }
+gshadow_blk = { path = "../domains/drivers/shadow_blk/gshadow_blk" }
+shadow_blk = { path = "../domains/drivers/shadow_blk/shadow_blk" }
+gsshadow_blk = { path = "../domains/drivers/sshadow_blk/gsshadow_blk" }
+sshadow_blk = { path = "../domains/drivers/sshadow_blk/sshadow_blk" }
+guart16550 = { path = "../domains/drivers/uart16550/guart16550" }
+domain_uart16550 = { path = "../domains/drivers/uart16550/uart16550" }
+guart8250 = { path = "../domains/drivers/uart8250/guart8250" }
+uart8250 = { path = "../domains/drivers/uart8250/uart8250" }
+virtio_blk = { path = "../domains/drivers/virtio_blk/virtio_blk" }
+gvirtio_gpu = { path = "../domains/drivers/virtio_gpu/gvirtio_gpu" }
+virtio_gpu = { path = "../domains/drivers/virtio_gpu/virtio_gpu" }
+gvirtio_input = { path = "../domains/drivers/virtio_input/gvirtio_input" }
+virtio_input = { path = "../domains/drivers/virtio_input/virtio_input" }
+gvirtio_net = { path = "../domains/drivers/virtio_net/gvirtio_net" }
+virtio_net = { path = "../domains/drivers/virtio_net/virtio_net" }
+devfs = { path = "../domains/fs/devfs/devfs" }
+gdevfs = { path = "../domains/fs/devfs/gdevfs" }
+domainfs = { path = "../domains/fs/domainfs/domainfs" }
+gdomainfs = { path = "../domains/fs/domainfs/gdomainfs" }
+domain_fatfs = { path = "../domains/fs/fatfs/fatfs" }
+gfatfs = { path = "../domains/fs/fatfs/gfatfs" }
+gpipefs = { path = "../domains/fs/pipefs/gpipefs" }
+pipefs = { path = "../domains/fs/pipefs/pipefs" }
+gprocfs = { path = "../domains/fs/procfs/gprocfs" }
+procfs = { path = "../domains/fs/procfs/procfs" }
+gramfs = { path = "../domains/fs/ramfs/gramfs" }
+ramfs = { path = "../domains/fs/ramfs/ramfs" }
+gsysfs = { path = "../domains/fs/sysfs/gsysfs" }
+sysfs = { path = "../domains/fs/sysfs/sysfs" }
+
+[target.'cfg(target_arch = "riscv64")'.dependencies]
+gplic = { path = "../domains/common/plic/gplic" }
+plic = { path = "../domains/common/plic/plic" }
+ggoldfish = { path = "../domains/drivers/goldfish/ggoldfish" }
+goldfish = { path = "../domains/drivers/goldfish/goldfish" }
+gvf2_sd = { path = "../domains/drivers/vf2_sd/gvf2_sd" }
+vf2_sd = { path = "../domains/drivers/vf2_sd/vf2_sd" }

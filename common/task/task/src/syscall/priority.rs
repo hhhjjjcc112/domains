@@ -18,10 +18,10 @@ fn parse_priority_target(which: i32, who: u32) -> AlienResult<PriorityTarget> {
             PriorityTarget::Process(pid)
         }
         Which::PRIO_PGRP => {
-            panic!("PRIO_PGRP is not supported")
+            return Err(basic::AlienError::ENOSYS);
         }
         Which::PRIO_USER => {
-            panic!("PRIO_USER is not supported")
+            return Err(basic::AlienError::ENOSYS);
         }
     })
 }
@@ -37,7 +37,7 @@ pub fn do_set_priority(which: i32, who: u32, prio: i32) -> AlienResult<()> {
             Ok(())
         }
         _ => {
-            panic!("PRIO_PGRP and PRIO_USER are not supported")
+            Err(basic::AlienError::ENOSYS)
         }
     }
 }
@@ -52,7 +52,7 @@ pub fn do_get_priority(which: i32, who: u32) -> AlienResult<i32> {
             prio.map(|p| 20 - p as i32)
         }
         _ => {
-            panic!("PRIO_PGRP and PRIO_USER are not supported")
+            Err(basic::AlienError::ENOSYS)
         }
     }
 }

@@ -5,7 +5,7 @@
 extern crate alloc;
 use alloc::{
     collections::BTreeMap,
-    string::{String, ToString},
+    string::String,
     sync::Arc,
     vec::Vec,
 };
@@ -420,7 +420,6 @@ impl FsDomain for GenericFsDomain {
             .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let dentry = parent_dentry.insert(name, inode)?;
         self.dentry_map.lock().insert(inode_id, dentry);
-        println!("<generic> The link implementation is not correct");
         Ok(inode_id)
     }
 

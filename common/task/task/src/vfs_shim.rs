@@ -2,6 +2,7 @@ use alloc::{sync::Arc, vec::Vec};
 
 use basic::{
     constants::{io::OpenFlags, AT_FDCWD},
+    println,
     AlienError, AlienResult,
 };
 use interface::{InodeID, VfsDomain, VFS_ROOT_ID, VFS_STDIN_ID, VFS_STDOUT_ID};
@@ -109,7 +110,7 @@ fn read_all_inner(file_name: &str, buf: &mut Vec<u8>, require_exec: bool) -> Ali
 pub fn read_all(file_name: &str, buf: &mut Vec<u8>) -> bool {
     let res = read_all_inner(file_name, buf, false);
     if res.is_err() {
-        info!("open/read file {} failed, err:{:?}", file_name, res.err());
+        println!("open/read file {} failed, err:{:?}", file_name, res.err());
         return false;
     }
     true

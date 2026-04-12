@@ -12,7 +12,7 @@ pub fn do_wait4(
     options: u32,
     _rusage: usize,
 ) -> AlienResult<isize> {
-    let wait_options = WaitOptions::from_bits(options).unwrap();
+    let wait_options = WaitOptions::from_bits(options).ok_or(AlienError::EINVAL)?;
     loop {
         let task = current_task().unwrap();
         let wait_task = filter_exit_task(&task, pid)?;

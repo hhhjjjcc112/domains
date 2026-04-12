@@ -4,13 +4,14 @@ mod poll;
 
 use alloc::sync::Arc;
 
-use ::basic::{constants::AT_FDCWD, AlienResult};
 pub use basic::*;
+use ::basic::{constants::AT_FDCWD, AlienResult};
 pub use control::*;
 use interface::{InodeID, TaskDomain, VFS_ROOT_ID};
 use log::info;
 pub use poll::*;
 
+/// 根据路径和基准 fd 解析 VFS 位置；`path` 是用户态路径，`fd` 决定相对路径的起点。
 fn user_path_at(
     task_domain: &Arc<dyn TaskDomain>,
     fd: isize,

@@ -16,8 +16,8 @@ pub static INIT_PROCESS: Lazy<Arc<Task>> = Lazy::new(|| {
         } else {
             println!("INIT_PROCESS fallback: {} is empty", init_path);
         }
-        // 启动主程序缺失时回退到 busybox，保证可进入 shell。
-        init_path = "/bin/busybox";
+        // 启动主程序缺失时回退到测试总入口，保证能继续验证 syscall。
+        init_path = "/tests/new/syscall_all";
         data.clear();
         if !read_all(init_path, &mut data) || data.is_empty() {
             println!("failed to read fallback init program: {}", init_path);
@@ -32,15 +32,15 @@ pub static INIT_PROCESS: Lazy<Arc<Task>> = Lazy::new(|| {
 
     let task = match Task::from_elf(init_path, data.as_slice()) {
         Some(task) => task,
-        None if init_path != "/bin/busybox" => {
-            println!("Task::from_elf failed for /tests/init, fallback to /bin/busybox");
+        None if init_path != "/tests/new/syscall_all" => {
+            println!("Task::from_elf failed for /tests/init, fallback to /tests/new/syscall_all");
             data.clear();
-            if !read_all("/bin/busybox", &mut data) || data.is_empty() {
-                panic!("fallback /bin/busybox read failed");
+            if !read_all("/tests/new/syscall_all", &mut data) || data.is_empty() {
+                panic!("fallback /tests/new/syscall_all read failed");
             }
-            println!("INIT_PROCESS fallback hit: switched to /bin/busybox after elf load failure");
-            Task::from_elf("/bin/busybox", data.as_slice())
-                .unwrap_or_else(|| panic!("Task::from_elf failed for fallback /bin/busybox"))
+            println!("INIT_PROCESS fallback hit: switched to /tests/new/syscall_all after elf load failure");
+            Task::from_elf("/tests/new/syscall_all", data.as_slice())
+                .unwrap_or_else(|| panic!("Task::from_elf failed for fallback /tests/new/syscall_all"))
         }
         None => {
             panic!("Task::from_elf failed for {}", init_path);

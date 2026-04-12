@@ -11,7 +11,7 @@ use interface::{TaskDomain, VfsDomain};
 use pod::Pod;
 use shared_heap::DBox;
 
-/// See https://man7.org/linux/man-pages/man2/epoll_create1.2.html
+/// epoll_create1：`flags` 是创建标志，返回新的 epoll fd。
 pub fn sys_poll_createl(
     vfs_domain: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -24,6 +24,7 @@ pub fn sys_poll_createl(
     Ok(fd as isize)
 }
 
+/// epoll_ctl 的用户态事件布局；`events` 是事件掩码，`data` 是用户数据。
 #[derive(Pod, Copy, Clone)]
 #[repr(C)]
 pub struct EpollEventTmp {
@@ -31,6 +32,7 @@ pub struct EpollEventTmp {
     pub data: u64,
 }
 
+/// epoll_ctl：`epfd` 是 epoll fd，`op` 是操作码，`fd` 是目标 fd，`event_ptr` 是用户态事件指针。
 pub fn sys_poll_ctl(
     vfs_domain: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -49,6 +51,7 @@ pub fn sys_poll_ctl(
     Ok(0)
 }
 
+/// eventfd2：`init_val` 是初始计数，`flags` 是创建标志。
 pub fn sys_eventfd2(
     vfs_domain: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,

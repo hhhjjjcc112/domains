@@ -9,6 +9,7 @@ use basic::{
 use interface::TaskDomain;
 use pod::Pod;
 
+/// clock_gettime：`clk_id` 是时钟类型，`tp` 是用户态输出缓冲区。
 pub fn sys_clock_gettime(
     task_domain: &Arc<dyn TaskDomain>,
     clk_id: usize,
@@ -31,12 +32,20 @@ pub fn sys_clock_gettime(
     }
 }
 
-pub fn sys_get_time_of_day(task_domain: &Arc<dyn TaskDomain>, tv: usize) -> AlienResult<isize> {
-    let time = TimeVal::now();
-    task_domain.write_val_to_user(tv, &time)?;
+/// gettimeofday：`tv` 是用户态时间结构体指针，`tz` 是历史时区参数，当前忽略。
+pub fn sys_get_time_of_day(
+    task_domain: &Arc<dyn TaskDomain>,
+    tv: usize,
+    _tz: usize,
+) -> AlienResult<isize> {
+    if tv != 0 {
+        let time = TimeVal::now();
+        task_domain.write_val_to_user(tv, &time)?;
+    }
     Ok(0)
 }
 
+/// nanosleep：`req` 是请求睡眠时间，`rem` 是剩余时间回写位置。
 pub fn sys_nanosleep(
     task_domain: &Arc<dyn TaskDomain>,
     req: usize,
@@ -49,9 +58,7 @@ pub fn sys_nanosleep(
     if req_ts.tv_nsec >= 1_000_000_000 {
         return Err(AlienError::EINVAL);
     }
-    let deadline = TimeSpec::now()
-        .to_clock()
-        .saturating_add(req_ts.to_clock());
+    let deadline = TimeSpec::now().to_clock().saturating_add(req_ts.to_clock());
     loop {
         if TimeSpec::now().to_clock() >= deadline {
             break;

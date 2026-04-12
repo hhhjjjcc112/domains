@@ -9,6 +9,7 @@ use interface::{TaskDomain, TmpHeapInfo, VfsDomain};
 use log::info;
 use shared_heap::DBox;
 
+/// brk：`addr` 为目标堆顶；传 0 时返回当前堆顶。
 pub fn sys_brk(
     _vfs: &Arc<dyn VfsDomain>,
     task_domain: &Arc<dyn TaskDomain>,
@@ -26,6 +27,7 @@ pub fn sys_brk(
     task_domain.do_brk(addr)
 }
 
+/// mmap：`addr/len/prot/flags/fd/offset` 对应 Linux mmap 参数。
 pub fn sys_mmap(
     task_domain: &Arc<dyn TaskDomain>,
     addr: usize,
@@ -55,10 +57,12 @@ pub fn sys_mmap(
     res
 }
 
+/// munmap：`addr` 是映射起始地址，`len` 是长度。
 pub fn sys_unmap(task_domain: &Arc<dyn TaskDomain>, addr: usize, len: usize) -> AlienResult<isize> {
     task_domain.do_munmap(addr, len)
 }
 
+/// mprotect：`addr/len` 指定区间，`prot` 是新的保护位。
 pub fn sys_mprotect(
     task_domain: &Arc<dyn TaskDomain>,
     addr: usize,

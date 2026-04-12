@@ -12,7 +12,7 @@ basic = { path = "../../../../domain-lib/basic" }
 shared_heap = { path = "../../../../domain-lib/shared_heap" }
 interface = { path = "../../../../domain-lib/interface",  features = ["domain"]  }
 storage = { path = "../../../../domain-lib/storage", features = ["impl"] }
-fatfs = { path = "../fatfs" }
+fatfs = { package = "domain_fatfs", path = "../fatfs" }
 
 
 [features]
