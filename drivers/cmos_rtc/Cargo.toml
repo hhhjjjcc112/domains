@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "cmos_rtc",
+    "gcmos_rtc",
+]
+
+resolver = "2"

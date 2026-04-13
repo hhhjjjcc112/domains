@@ -298,10 +298,12 @@ impl AuxVec {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn get(&self, key: usize) -> Option<u64> {
         self.table.get(&key).copied()
     }
 
+    #[allow(dead_code)]
     pub fn del(&mut self, key: usize) -> Option<u64> {
         self.table.remove(&key)
     }

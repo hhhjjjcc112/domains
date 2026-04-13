@@ -36,6 +36,8 @@ gbuf_input = { path = "../domains/drivers/buf_input/gbuf_input" }
 buf_uart = { path = "../domains/drivers/buf_uart/buf_uart" }
 gbuf_uart = { path = "../domains/drivers/buf_uart/gbuf_uart" }
 cache_blk = { path = "../domains/drivers/cache_blk/cache_blk" }
+gcmos_rtc = { path = "../domains/drivers/cmos_rtc/gcmos_rtc" }
+cmos_rtc = { path = "../domains/drivers/cmos_rtc/cmos_rtc" }
 ghpet = { path = "../domains/drivers/hpet/ghpet" }
 hpet = { path = "../domains/drivers/hpet/hpet" }
 gio_apic = { path = "../domains/drivers/io_apic/gio_apic" }

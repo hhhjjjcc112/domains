@@ -90,8 +90,7 @@ pub fn scan_system_devices(devfs_domain: &Arc<dyn DevFsDomain>, root_dt: &Arc<dy
     let mouse = find_domain_name(&["mouse", "buf_input-2", "buf_input-1"]);
     let keyboard = find_domain_name(&["keyboard", "buf_input-1", "buf_input-2"]);
     let blk = basic::get_domain("cache_blk-1");
-    #[cfg(target_arch = "riscv64")]
-    let rtc = basic::get_domain("goldfish"); // unique name
+    let rtc = find_rtc_domain_name(&["rtc", "goldfish"]);
 
     match uart {
         Some(_) => {
@@ -186,12 +185,11 @@ pub fn scan_system_devices(devfs_domain: &Arc<dyn DevFsDomain>, root_dt: &Arc<dy
         None => panic!("blk domain not found"),
     }
 
-    #[cfg(target_arch = "riscv64")]
     match rtc {
-        Some(_) => {
+        Some(rtc_name) => {
             let rtc_id = alloc_device_id(VfsNodeType::CharDevice);
             devfs_domain
-                .register(rtc_id.id(), &DVec::from_slice(b"goldfish"))
+                .register(rtc_id.id(), &DVec::from_slice(rtc_name.as_bytes()))
                 .unwrap();
             root.create(
                 "rtc",
@@ -214,6 +212,15 @@ fn find_domain_name(candidates: &[&str]) -> Option<String> {
                 return Some((*name).to_string());
             }
             _ => {}
+        }
+    }
+    None
+}
+
+fn find_rtc_domain_name(candidates: &[&str]) -> Option<String> {
+    for name in candidates {
+        if matches!(basic::get_domain(name), Some(DomainType::RtcDomain(_))) {
+            return Some((*name).to_string());
         }
     }
     None

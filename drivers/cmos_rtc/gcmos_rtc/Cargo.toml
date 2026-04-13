@@ -1,0 +1,18 @@
+[package]
+name = "gcmos_rtc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+malloc = { path = "../../../../domain-lib/malloc" }
+corelib = { path = "../../../../domain-lib/corelib" }
+basic = { path = "../../../../domain-lib/basic" }
+shared_heap = { path = "../../../../domain-lib/shared_heap" }
+interface = { path = "../../../../domain-lib/interface", features = ["domain"] }
+storage = { path = "../../../../domain-lib/storage", features = ["impl"] }
+
+cmos_rtc = { path = "../cmos_rtc" }
+
+[features]
+default = ["rust-unwind"]
+rust-unwind = []
