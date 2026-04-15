@@ -22,7 +22,7 @@ use vfscore::{
     utils::{VfsFileStat, VfsNodeType, VfsPollEvents},
 };
 
-use crate::{shim::FsShimInode, system_root_fs};
+use crate::shim::FsShimInode;
 
 pub struct KernelFile {
     inode_id: u64,
@@ -84,6 +84,7 @@ impl KernelFile {
     }
 }
 
+#[allow(dead_code)]
 pub trait File: DowncastSync + Debug {
     fn read(&self, buf: DVec<u8>) -> AlienResult<(DVec<u8>, usize)>;
     fn write(&self, buf: &DVec<u8>) -> AlienResult<usize>;

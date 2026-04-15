@@ -1,6 +1,6 @@
 use alloc::sync::Arc;
 
-use basic::{constants::ipc::FutexOp, println, println_color, AlienResult};
+use basic::{constants::ipc::FutexOp, println, AlienResult};
 use memory_addr::VirtAddr;
 use ptable::VmIo;
 use task_meta::TaskStatus;

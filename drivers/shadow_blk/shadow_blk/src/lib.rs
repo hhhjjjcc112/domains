@@ -9,7 +9,7 @@ use alloc::{
 };
 
 use basic::{
-    println, println_color,
+    println_color,
     sync::{Once, OnceGet},
     AlienError, AlienResult,
 };
@@ -18,7 +18,7 @@ use interface::{
     ShadowBlockDomain,
 };
 use log::error;
-use shared_heap::{DBox, DVec};
+use shared_heap::DVec;
 
 #[derive(Debug)]
 pub struct ShadowBlockDomainImpl {

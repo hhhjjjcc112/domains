@@ -24,3 +24,7 @@ spin = "0"
 log = "0"
 # now we trust the elf loader
 xmas-elf = "0.10"  # unsafe lib
+
+[features]
+default = []
+test = []

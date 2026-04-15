@@ -84,6 +84,7 @@ impl KernelFile {
     }
 }
 
+#[allow(dead_code)]
 pub trait File: DowncastSync + Debug {
     fn read(&self, buf: DVec<u8>) -> AlienResult<(DVec<u8>, usize)>;
     fn write(&self, buf: &DVec<u8>) -> AlienResult<usize>;

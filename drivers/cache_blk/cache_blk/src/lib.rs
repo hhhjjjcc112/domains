@@ -16,7 +16,7 @@ use interface::{
 };
 use log::info;
 use lru::LruCache;
-use shared_heap::{DBox, DVec};
+use shared_heap::DVec;
 
 struct PageCache(Vec<DVec<u8>>);
 

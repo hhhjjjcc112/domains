@@ -17,7 +17,7 @@ use basic::{
     AlienResult,
 };
 use interface::{define_unwind_for_BlkDeviceDomain, Basic, BlkDeviceDomain, DeviceBase, VirtioInitInfo};
-use shared_heap::{DBox, DVec};
+use shared_heap::DVec;
 use virtio_drivers::error::VirtIoResult;
 use virtio_drivers::hal::VirtIoDeviceIo;
 use virtio_drivers::transport::{DeviceStatus, DeviceType, Transport};

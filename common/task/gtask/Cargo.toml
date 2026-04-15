@@ -17,3 +17,4 @@ task = { path = "../task" }
 [features]
 default = ["rust-unwind"]
 rust-unwind = []
+test = ["task/test"]

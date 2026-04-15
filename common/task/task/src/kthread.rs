@@ -24,6 +24,7 @@ use crate::{
 pub fn ktread_create(func: fn(), name: &str) -> AlienResult<()> {
     let tid = Arc::new(TidHandle::new().unwrap());
     let pid = tid.clone();
+    let pid_raw = pid.raw();
 
     let context = TaskContext::new_kernel(func as _, VirtAddr::from(0));
     let task_basic_info = TaskBasicInfo::new(tid.raw(), context);
@@ -51,6 +52,8 @@ pub fn ktread_create(func: fn(), name: &str) -> AlienResult<()> {
         inner: Mutex::new(TaskInner {
             name: name.to_string(),
             thread_number: 0,
+            process_group: pid_raw,
+            session_id: pid_raw,
             status: TaskStatus::Ready,
             parent: None,
             children: BTreeMap::new(),

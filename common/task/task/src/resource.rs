@@ -153,6 +153,7 @@ impl UserStack {
         self.push_vec_u64(&argv_pointers, vm_space)?;
         self.push_u64(self.argv.len() as _, vm_space)
     }
+    #[allow(dead_code)]
     pub fn top(&self) -> VirtAddr {
         self.pos
     }

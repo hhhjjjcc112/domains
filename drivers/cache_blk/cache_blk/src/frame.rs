@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use core::{
     cmp::min,
@@ -10,7 +12,6 @@ use basic::{
     config::FRAME_SIZE,
     println_color,
     sync::{Mutex, Once, OnceGet},
-    time::read_time_us,
     vm::frame::FrameTracker,
     AlienResult,
 };
@@ -20,7 +21,7 @@ use interface::{
 };
 use log::info;
 use lru::LruCache;
-use shared_heap::{DBox, DVec};
+use shared_heap::DVec;
 
 struct PageCache(FrameTracker);
 

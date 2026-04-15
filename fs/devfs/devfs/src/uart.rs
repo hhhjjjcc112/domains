@@ -125,6 +125,10 @@ impl VfsFile for UARTDevice {
                 Ok(0)
             }
             TeletypeCommand::TIOCGPGRP => {
+                if io.foreground_pgid == 0 {
+                    // 首次访问时对齐当前任务组，避免 shell 被当成后台进程。
+                    io.foreground_pgid = self.task_domain.current_pgid().unwrap_or(0) as u32;
+                }
                 self.task_domain
                     .write_val_to_user(arg, &io.foreground_pgid)
                     .unwrap();

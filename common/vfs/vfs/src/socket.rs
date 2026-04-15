@@ -23,7 +23,6 @@ pub struct SocketFile {
     pos: Mutex<u64>,
     open_flag: Mutex<OpenFlags>,
     socket_id: SocketID,
-    inode: Arc<dyn VfsInode>,
 }
 
 impl Drop for SocketFile {
@@ -55,7 +54,6 @@ impl SocketFile {
             pos: Mutex::new(0),
             open_flag: Mutex::new(open_flag),
             socket_id,
-            inode: Arc::new(SocketInode),
         }
     }
 
@@ -167,6 +165,7 @@ impl File for SocketFile {
     }
 }
 
+#[allow(dead_code)]
 pub struct SocketInode;
 
 impl VfsFile for SocketInode {}

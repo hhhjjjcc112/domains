@@ -7,10 +7,10 @@ extern crate malloc;
 use alloc::boxed::Box;
 use core::panic::PanicInfo;
 
-use basic::{domain_main, println, println_color, sync::Mutex};
+use basic::domain_main;
 use corelib::CoreFunction;
 use interface::NetDomain;
-use shared_heap::{domain_id, SharedHeapAlloc};
+use shared_heap::SharedHeapAlloc;
 use storage::StorageArg;
 
 #[domain_main]

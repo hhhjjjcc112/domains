@@ -65,6 +65,7 @@ pub fn sys_dup(task_domain: &Arc<dyn TaskDomain>, oldfd: usize) -> AlienResult<i
 }
 
 /// dup2：把 `oldfd` 复制到 `newfd`；两者相同则直接返回 `newfd`。
+#[allow(dead_code)]
 pub fn sys_dup2(
     task_domain: &Arc<dyn TaskDomain>,
     oldfd: usize,

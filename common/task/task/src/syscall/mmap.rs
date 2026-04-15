@@ -4,7 +4,6 @@ use core::ops::Range;
 use basic::{
     config::FRAME_SIZE,
     constants::io::{MMapFlags, MMapType, ProtFlags, MMAP_TYPE_MASK},
-    println_color,
     vm::frame::FrameTracker,
     AlienError, AlienResult,
 };

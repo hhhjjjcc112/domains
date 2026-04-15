@@ -1,6 +1,6 @@
 use alloc::{sync::Arc, vec::Vec};
 
-use basic::{constants::task::WaitOptions, println, println_color, AlienError, AlienResult};
+use basic::{constants::task::WaitOptions, println, AlienError, AlienResult};
 use memory_addr::VirtAddr;
 use task_meta::TaskStatus;
 

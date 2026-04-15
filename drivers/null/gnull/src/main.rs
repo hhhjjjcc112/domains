@@ -9,8 +9,8 @@ use core::panic::PanicInfo;
 
 use basic::domain_main;
 use corelib::CoreFunction;
-use interface::{Basic, EmptyDeviceDomain};
-use shared_heap::{domain_id, SharedHeapAlloc};
+use interface::EmptyDeviceDomain;
+use shared_heap::SharedHeapAlloc;
 use storage::StorageArg;
 
 #[domain_main]

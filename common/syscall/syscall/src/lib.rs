@@ -256,8 +256,12 @@ impl SysCallDomain for SysCallDomainImpl {
             SYSCALL_SETPGID => sys_set_pgid(task, args[0], args[1]),
             // getpgid：读取进程组 ID。
             SYSCALL_GETPGID => sys_get_pgid(task, args[0]),
+            // getpgrp：读取当前进程组 ID。
+            SYSCALL_GETPGRP => sys_get_pgrp(task),
             // setsid：创建新会话。
             SYSCALL_SETSID => sys_set_sid(task),
+            // getsid：读取会话 ID。
+            SYSCALL_GETSID => sys_get_sid(task, args[0]),
             // uname：读取系统标识信息。
             SYSCALL_UNAME => sys_uname(task, args[0]),
             // gettimeofday：读取墙上时钟时间。

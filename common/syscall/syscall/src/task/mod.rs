@@ -169,25 +169,31 @@ pub fn sys_getuid(_task_domain: &Arc<dyn TaskDomain>) -> AlienResult<isize> {
 
 /// setpgid：`pid/pgid` 已按 ABI 接入；当前最小实现不维护真实进程组，直接返回成功。
 pub fn sys_set_pgid(
-    _task_domain: &Arc<dyn TaskDomain>,
-    _pid: usize,
-    _pgid: usize,
+    task_domain: &Arc<dyn TaskDomain>,
+    pid: usize,
+    pgid: usize,
 ) -> AlienResult<isize> {
-    Ok(0)
+    task_domain.do_set_pgid(pid, pgid)
 }
 
-/// getpgid：`pid` 已按 ABI 接入；当前最小实现把当前进程视作自己的进程组长。
+/// getpgid：返回指定进程的进程组 ID，`pid == 0` 时查询当前进程。
 pub fn sys_get_pgid(task_domain: &Arc<dyn TaskDomain>, pid: usize) -> AlienResult<isize> {
-    let current_pid = task_domain.current_pid()?;
-    if pid == 0 || pid == current_pid {
-        return Ok(current_pid as isize);
-    }
-    Ok(0)
+    task_domain.do_get_pgid(pid).map(|pgid| pgid as isize)
 }
 
-/// setsid：当前最小实现不维护真实会话，保留接口但直接返回成功。
-pub fn sys_set_sid(_task_domain: &Arc<dyn TaskDomain>) -> AlienResult<isize> {
-    Ok(0)
+/// getpgrp：返回当前进程组 ID。
+pub fn sys_get_pgrp(task_domain: &Arc<dyn TaskDomain>) -> AlienResult<isize> {
+    task_domain.current_pgid().map(|pgid| pgid as isize)
+}
+
+/// getsid：返回指定进程的会话 ID，`pid == 0` 时查询当前进程。
+pub fn sys_get_sid(task_domain: &Arc<dyn TaskDomain>, pid: usize) -> AlienResult<isize> {
+    task_domain.do_get_sid(pid).map(|sid| sid as isize)
+}
+
+/// setsid：创建新会话并成为会话首进程。
+pub fn sys_set_sid(task_domain: &Arc<dyn TaskDomain>) -> AlienResult<isize> {
+    task_domain.do_set_sid()
 }
 
 /// getpid：返回当前进程 ID。

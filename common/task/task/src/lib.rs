@@ -25,7 +25,7 @@ use interface::{
 use memory_addr::VirtAddr;
 use shared_heap::{DBox, DVec};
 
-use crate::{processor::current_task, vfs_shim::ShimFile};
+use crate::{processor::{current_task, find_task_by_pid}, vfs_shim::ShimFile};
 
 #[derive(Debug)]
 pub struct TaskDomainImpl {}
@@ -157,6 +157,15 @@ impl TaskDomain for TaskDomainImpl {
             Ok(p.pid() as _)
         }
     }
+    fn current_pgid(&self) -> AlienResult<usize> {
+        let task = current_task().unwrap();
+        Ok(task.pgid())
+    }
+
+    fn current_sid(&self) -> AlienResult<usize> {
+        let task = current_task().unwrap();
+        Ok(task.sid())
+    }
     fn do_brk(&self, addr: usize) -> AlienResult<isize> {
         let task = current_task().unwrap();
         let new_addr = task.extend_heap(addr);
@@ -257,6 +266,74 @@ impl TaskDomain for TaskDomainImpl {
         {
             Err(AlienError::ENOSYS)
         }
+    }
+
+    fn do_get_pgid(&self, pid: usize) -> AlienResult<usize> {
+        let current = current_task().ok_or(AlienError::EINVAL)?;
+        if pid == 0 || pid == current.pid() {
+            return Ok(current.pgid());
+        }
+
+        let task = find_task_by_pid(pid).ok_or(AlienError::ESRCH)?;
+        Ok(task.pgid())
+    }
+
+    fn do_get_sid(&self, pid: usize) -> AlienResult<usize> {
+        let current = current_task().ok_or(AlienError::EINVAL)?;
+        if pid == 0 || pid == current.pid() {
+            return Ok(current.sid());
+        }
+
+        let task = find_task_by_pid(pid).ok_or(AlienError::ESRCH)?;
+        Ok(task.sid())
+    }
+
+    fn do_set_pgid(&self, pid: usize, pgid: usize) -> AlienResult<isize> {
+        let current = current_task().ok_or(AlienError::EINVAL)?;
+        let target = if pid == 0 || pid == current.pid() {
+            current.clone()
+        } else {
+            let task = find_task_by_pid(pid).ok_or(AlienError::ESRCH)?;
+            let parent = task
+                .inner()
+                .parent
+                .as_ref()
+                .and_then(|parent| parent.upgrade())
+                .ok_or(AlienError::EPERM)?;
+            if !Arc::ptr_eq(&parent, &current) {
+                return Err(AlienError::EPERM);
+            }
+            task
+        };
+
+        let new_pgid = if pgid == 0 { target.pid() } else { pgid };
+        if target.pgid() == new_pgid {
+            return Ok(0);
+        }
+
+        if target.sid() == target.pid() {
+            return Err(AlienError::EPERM);
+        }
+
+        let group_leader = find_task_by_pid(new_pgid).ok_or(AlienError::EPERM)?;
+        if group_leader.sid() != target.sid() {
+            return Err(AlienError::EPERM);
+        }
+
+        target.set_pgid(new_pgid);
+        Ok(0)
+    }
+
+    fn do_set_sid(&self) -> AlienResult<isize> {
+        let task = current_task().ok_or(AlienError::EINVAL)?;
+        let current_pid = task.pid();
+        if task.pgid() == current_pid {
+            return Err(AlienError::EPERM);
+        }
+
+        task.set_sid(current_pid);
+        task.set_pgid(current_pid);
+        Ok(current_pid as isize)
     }
 
     fn do_mmap(

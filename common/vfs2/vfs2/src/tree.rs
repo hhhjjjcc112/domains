@@ -1,4 +1,4 @@
-use alloc::{format, string::ToString, sync::Arc, vec::Vec};
+use alloc::{format, sync::Arc, vec::Vec};
 use core::ffi::CStr;
 
 use basic::{constants::io::OpenFlags, println, println_color, sync::Mutex};
@@ -196,7 +196,7 @@ fn init_filesystem_after() -> VfsResult<Arc<dyn VfsDentry>> {
             let fs_domain = meta.lock().fs_domain.clone();
             let dentry = {
                 let fs_domain_ident = &meta.lock().fs_domain_ident;
-                let ident = core::str::from_utf8(fs_domain_ident.as_slice()).unwrap();
+                let _ident = core::str::from_utf8(fs_domain_ident.as_slice()).unwrap();
                 // println!("recover file descriptor: {} in fs domain {}", key, ident);
                 RootShimDentry::new(
                     fs_domain,
@@ -213,7 +213,7 @@ fn init_filesystem_after() -> VfsResult<Arc<dyn VfsDentry>> {
 
 /// Init the filesystem
 pub fn init_filesystem(initrd: &[u8], is_init_done: bool) -> VfsResult<()> {
-    let ramfs_root = if is_init_done {
+    let _ramfs_root = if is_init_done {
         init_filesystem_after()?
     } else {
         init_filesystem_before(initrd)?
@@ -222,14 +222,6 @@ pub fn init_filesystem(initrd: &[u8], is_init_done: bool) -> VfsResult<()> {
     // vfscore::path::print_fs_tree(&mut VfsOutPut, ramfs_root, "".to_string(), false).unwrap();
     // println!("Init filesystem success");
     Ok(())
-}
-
-struct VfsOutPut;
-impl core::fmt::Write for VfsOutPut {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        basic::write_console(s);
-        Ok(())
-    }
 }
 
 /// Get the root filesystem of the system

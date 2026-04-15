@@ -10,7 +10,7 @@ use core::panic::PanicInfo;
 use basic::domain_main;
 use corelib::CoreFunction;
 use interface::SysCallDomain;
-use shared_heap::{domain_id, SharedHeapAlloc};
+use shared_heap::SharedHeapAlloc;
 use storage::StorageArg;
 
 #[domain_main]

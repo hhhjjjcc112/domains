@@ -5,7 +5,6 @@ use alloc::{
     vec::Vec,
 };
 use core::{
-    cmp::min,
     fmt::Debug,
     ops::{Deref, DerefMut},
 };

@@ -75,6 +75,10 @@ pub struct TaskInner {
     pub name: String,
     /// 用于记录当前线程在线程组中的序号
     pub thread_number: usize,
+    /// 当前进程组 ID
+    pub process_group: usize,
+    /// 当前会话 ID
+    pub session_id: usize,
     /// 线程状态
     pub status: TaskStatus,
     /// 父亲任务控制块
@@ -127,6 +131,24 @@ impl Task {
 
     pub fn tid(&self) -> usize {
         self.tid.raw()
+    }
+
+    pub fn pgid(&self) -> usize {
+        self.inner.lock().process_group
+    }
+
+    pub fn sid(&self) -> usize {
+        self.inner.lock().session_id
+    }
+
+    pub fn set_pgid(&self, pgid: usize) {
+        let mut inner = self.inner.lock();
+        inner.process_group = pgid;
+    }
+
+    pub fn set_sid(&self, sid: usize) {
+        let mut inner = self.inner.lock();
+        inner.session_id = sid;
     }
 
     pub fn exit_code(&self) -> i32 {
@@ -263,9 +285,19 @@ impl Task {
 }
 
 impl Task {
+    fn new_stdio_fd_table() -> Arc<Mutex<FdManager>> {
+        let mut fd_table = FdManager::new();
+        fd_table.insert(STDIN.clone());
+        fd_table.insert(STDOUT.clone());
+        // 标准错误先复用串口输出，保证早期 shell 报错可见。
+        fd_table.insert(STDOUT.clone());
+        Arc::new(Mutex::new(fd_table))
+    }
+
     pub fn from_elf(name: &str, elf: &[u8]) -> Option<Task> {
         let tid = Arc::new(TidHandle::new()?);
         let pid = tid.clone();
+        let pid_raw = pid.raw();
         // 保证用户态至少有 argv[0]，与 execve 语义一致。
         let mut args = vec![name.to_string()];
         let elf_info = match build_vm_space(elf, &mut args, "init") {
@@ -291,13 +323,7 @@ impl Task {
             mmap: Arc::new(Mutex::new(MMapInfo::new())),
             signal_handlers: Arc::new(Mutex::new(SignalHandlers::new())),
             signal_receivers: Arc::new(Mutex::new(SignalReceivers::new())),
-            fd_table: {
-                let mut fd_table = FdManager::new();
-                fd_table.insert(STDIN.clone());
-                fd_table.insert(STDOUT.clone());
-                fd_table.insert(STDOUT.clone());
-                Arc::new(Mutex::new(fd_table))
-            },
+            fd_table: Self::new_stdio_fd_table(),
             threads: {
                 let mut allocator = IndexAllocator::new();
                 let number = allocator.allocate().unwrap();
@@ -311,6 +337,8 @@ impl Task {
             inner: Mutex::new(TaskInner {
                 name: name.to_string(),
                 thread_number: 0,
+                process_group: pid_raw,
+                session_id: pid_raw,
                 status: TaskStatus::Ready,
                 parent: None,
                 children: BTreeMap::new(),
@@ -337,9 +365,14 @@ impl Task {
             name.to_string(),
         );
 
-        let mut context = TaskContext::new_user(VirtAddr::from(0));
         #[cfg(target_arch = "x86_64")]
-        context.set_fs_base(elf_info.tls);
+        let context = {
+            let mut context = TaskContext::new_user(VirtAddr::from(0));
+            context.set_fs_base(elf_info.tls);
+            context
+        };
+        #[cfg(target_arch = "riscv64")]
+        let context = TaskContext::new_user(VirtAddr::from(0));
 
         let cpus_allowed = 1 << cpu_id();
         let task_basic_info = TaskBasicInfo::new(task.tid.raw(), context);
@@ -371,7 +404,8 @@ impl Task {
         };
         let trap_frame = task.trap_frame();
         *trap_frame = TrapFrame::new_user(elf_info.entry, user_sp, VirtAddr::from(k_stack_top));
-        trap_frame.update_tp(VirtAddr::from(elf_info.tls)); // tp --> tls
+        #[cfg(target_arch = "riscv64")]
+        trap_frame.update_tls(VirtAddr::from(elf_info.tls)); // 设置 TLS
         println!(
             "Task::from_elf success: name={}, tid={}, entry={:#x}, user_sp={:#x}, k_sp={:#x}, cpu_id={}, cpus_allowed={:#x}",
             name,
@@ -422,6 +456,8 @@ impl Task {
             inner.fs_base,
             inner.gs_base,
         );
+        let process_group = inner.process_group;
+        let session_id = inner.session_id;
 
         let child_fs_base = if clone_args.flags.contains(CloneFlags::CLONE_SETTLS) {
             clone_args.tls
@@ -475,6 +511,8 @@ impl Task {
             inner: Mutex::new(TaskInner {
                 name,
                 thread_number: thread_num,
+                process_group,
+                session_id,
                 status: TaskStatus::Ready,
                 parent,
                 children: BTreeMap::new(),
@@ -498,6 +536,14 @@ impl Task {
             send_sigchld_when_exit: clone_args.sig == SignalNumber::SIGCHLD,
         };
 
+        #[cfg(target_arch = "x86_64")]
+        let context = {
+            let mut context = TaskContext::new_user(VirtAddr::from(0));
+            context.set_fs_base(child_fs_base);
+            context.set_gs_base(gs_base);
+            context
+        };
+        #[cfg(target_arch = "riscv64")]
         let context = TaskContext::new_user(VirtAddr::from(0));
         let task_basic_info = TaskBasicInfo::new(task.tid.raw(), context);
         let scheduling_info = TaskSchedulingInfo::new(task.tid.raw(), 0, usize::MAX);
@@ -515,7 +561,8 @@ impl Task {
 
         // 检查是否需要设置 tls
         if clone_args.flags.contains(CloneFlags::CLONE_SETTLS) {
-            trap_context.update_tp(VirtAddr::from(clone_args.tls));
+            #[cfg(target_arch = "riscv64")]
+            trap_context.update_tls(VirtAddr::from(clone_args.tls));
         }
 
         trace!("write tid to parent arg: {:#x?}", clone_args.ptid);
@@ -583,7 +630,8 @@ impl Task {
 
         *trap_frame =
             TrapFrame::new_user(elf_info.entry, user_sp, VirtAddr::from(self.kernel_stack));
-        trap_frame.update_tp(VirtAddr::from(elf_info.tls)); // tp --> tls
+        #[cfg(target_arch = "riscv64")]
+        trap_frame.update_tls(VirtAddr::from(elf_info.tls)); // 设置 TLS
         Ok(())
     }
 }

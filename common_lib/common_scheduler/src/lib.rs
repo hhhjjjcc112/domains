@@ -7,22 +7,19 @@ extern crate alloc;
 
 use alloc::boxed::Box;
 
-use basic::{println, AlienResult};
+use basic::AlienResult;
 use interface::{define_unwind_for_SchedulerDomain, Basic, SchedulerDomain};
 use shared_heap::DBox;
 pub use scheduler::Scheduler;
 use task_meta::TaskSchedulingInfo;
 
 #[derive(Debug)]
-pub struct CommonSchedulerDomain {
-    name: &'static str,
-}
+pub struct CommonSchedulerDomain;
 
 impl CommonSchedulerDomain {
     pub fn new(global_scheduler: Box<dyn Scheduler>) -> Self {
-        let name = global_scheduler.name();
         scheduler::set_scheduler(global_scheduler);
-        Self { name }
+        Self
     }
 }
 
