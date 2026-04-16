@@ -1,11 +1,11 @@
 use alloc::{collections::BTreeMap, string::ToString, sync::Arc};
 
 use basic::{
+    AlienResult,
     constants::signal::{SignalHandlers, SignalReceivers, SignalStack},
     println,
     sync::Mutex,
     task::{TaskContext, TaskContextExt},
-    AlienResult,
 };
 use interface::VFS_ROOT_ID;
 use memory_addr::VirtAddr;
@@ -68,8 +68,6 @@ pub fn ktread_create(func: fn(), name: &str) -> AlienResult<()> {
                 ss_flags: 0x2,
                 ss_size: 0,
             },
-            fs_base: 0,
-            gs_base: 0,
         }),
         send_sigchld_when_exit: false,
         mmap: Arc::new(Mutex::new(MMapInfo::new())),

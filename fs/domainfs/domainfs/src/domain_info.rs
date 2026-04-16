@@ -8,14 +8,14 @@ use core::cmp::min;
 use interface::DomainTypeRaw;
 use shared_heap::DVec;
 use vfscore::{
+    VfsResult,
     error::VfsError,
     file::VfsFile,
     inode::VfsInode,
     utils::{VfsDirEntry, VfsFileStat, VfsInodeMode, VfsNodePerm, VfsNodeType, VfsTimeSpec},
-    VfsResult,
 };
 
-use crate::{custom_inode::CustomRootInode, DOMAIN_INFO};
+use crate::{DOMAIN_INFO, custom_inode::CustomRootInode};
 
 pub fn domain_fs_root() -> Arc<CustomRootInode> {
     let root = CustomRootInode::new();
@@ -169,6 +169,7 @@ fn domain_type_from_str(name: &str) -> Option<DomainTypeRaw> {
         "InputDomain" => Some(DomainTypeRaw::InputDomain),
         "VfsDomain" => Some(DomainTypeRaw::VfsDomain),
         "UartDomain" => Some(DomainTypeRaw::UartDomain),
+        #[cfg(target_arch = "riscv64")]
         "PLICDomain" => Some(DomainTypeRaw::PLICDomain),
         "TaskDomain" => Some(DomainTypeRaw::TaskDomain),
         "SysCallDomain" => Some(DomainTypeRaw::SysCallDomain),
@@ -177,6 +178,7 @@ fn domain_type_from_str(name: &str) -> Option<DomainTypeRaw> {
         "NetDeviceDomain" => Some(DomainTypeRaw::NetDeviceDomain),
         "BufInputDomain" => Some(DomainTypeRaw::BufInputDomain),
         "EmptyDeviceDomain" => Some(DomainTypeRaw::EmptyDeviceDomain),
+        #[cfg(target_arch = "x86_64")]
         "APICDomain" => Some(DomainTypeRaw::APICDomain),
         "DevFsDomain" => Some(DomainTypeRaw::DevFsDomain),
         "SchedulerDomain" => Some(DomainTypeRaw::SchedulerDomain),

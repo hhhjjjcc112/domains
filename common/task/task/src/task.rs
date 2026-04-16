@@ -9,6 +9,7 @@ use alloc::{
 use core::{fmt::Debug, ops::Range};
 
 use basic::{
+    AlienResult,
     arch::cpu_id,
     config::*,
     constants::{
@@ -19,7 +20,6 @@ use basic::{
     sync::{Mutex, MutexGuard},
     task::{TaskContext, TaskContextExt, TrapFrame},
     vm::frame::FrameTracker,
-    AlienResult,
 };
 use interface::{InodeID, VFS_ROOT_ID};
 use memory_addr::{PhysAddr, VirtAddr};
@@ -30,12 +30,13 @@ use small_index::IndexAllocator;
 use task_meta::{TaskBasicInfo, TaskMeta, TaskSchedulingInfo, TaskStatus};
 
 use crate::{
+    arch as task_arch,
     elf::{
-        build_vm_space, clone_vm_space, extend_thread_vm_space, FrameTrackerWrapper,
-        VmmPageAllocator,
+        FrameTrackerWrapper, VmmPageAllocator, build_vm_space, clone_vm_space,
+        extend_thread_vm_space,
     },
     resource::{AuxVec, FdManager, HeapInfo, MMapInfo, ResourceLimits, TidHandle, UserStack},
-    vfs_shim::{ShimFile, STDIN, STDOUT},
+    vfs_shim::{STDIN, STDOUT, ShimFile},
 };
 
 #[derive(Debug)]
@@ -101,10 +102,6 @@ pub struct TaskInner {
     /// - SS_ONSTACK = 1
     /// - SS_DISABLE = 2
     pub ss_stack: SignalStack,
-    /// x86_64 用户态 FS 基址（arch_prctl）
-    pub fs_base: usize,
-    /// x86_64 用户态 GS 基址（arch_prctl）
-    pub gs_base: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -305,13 +302,13 @@ impl Task {
             Err(err) => {
                 println!(
                     "Task::from_elf build_vm_space failed: name={}, err={:?}",
-                    name,
-                    err
+                    name, err
                 );
                 return None;
             }
         };
         let address_space = elf_info.address_space;
+        let user_arch_state = task_arch::initial_user_state(elf_info.tls);
 
         let stack_info =
             elf_info.stack_top.as_usize() - USER_STACK_SIZE..elf_info.stack_top.as_usize();
@@ -352,8 +349,6 @@ impl Task {
                     ss_flags: 0x2,
                     ss_size: 0,
                 },
-                fs_base: elf_info.tls,
-                gs_base: 0,
             }),
             send_sigchld_when_exit: false,
         };
@@ -365,14 +360,8 @@ impl Task {
             name.to_string(),
         );
 
-        #[cfg(target_arch = "x86_64")]
-        let context = {
-            let mut context = TaskContext::new_user(VirtAddr::from(0));
-            context.set_fs_base(elf_info.tls);
-            context
-        };
-        #[cfg(target_arch = "riscv64")]
-        let context = TaskContext::new_user(VirtAddr::from(0));
+        let mut context = TaskContext::new_user(VirtAddr::from(0));
+        task_arch::apply_user_state(&mut context, user_arch_state);
 
         let cpus_allowed = 1 << cpu_id();
         let task_basic_info = TaskBasicInfo::new(task.tid.raw(), context);
@@ -383,8 +372,7 @@ impl Task {
             Err(err) => {
                 println!(
                     "Task::from_elf add_one_task failed: name={}, err={:?}",
-                    name,
-                    err
+                    name, err
                 );
                 return None;
             }
@@ -396,16 +384,14 @@ impl Task {
             Err(err) => {
                 println!(
                     "Task::from_elf init user stack failed: name={}, err={:?}",
-                    name,
-                    err
+                    name, err
                 );
                 return None;
             }
         };
         let trap_frame = task.trap_frame();
         *trap_frame = TrapFrame::new_user(elf_info.entry, user_sp, VirtAddr::from(k_stack_top));
-        #[cfg(target_arch = "riscv64")]
-        trap_frame.update_tls(VirtAddr::from(elf_info.tls)); // 设置 TLS
+        task_arch::apply_trap_tls(trap_frame, elf_info.tls);
         println!(
             "Task::from_elf success: name={}, tid={}, entry={:#x}, user_sp={:#x}, k_sp={:#x}, cpu_id={}, cpus_allowed={:#x}",
             name,
@@ -449,21 +435,19 @@ impl Task {
             Some(Arc::downgrade(self))
         };
 
-        let (name, fs_info, stack, fs_base, gs_base) = (
+        let (name, fs_info, stack) = (
             inner.name.clone(),
             inner.fs_info.clone(),
             inner.stack.clone(),
-            inner.fs_base,
-            inner.gs_base,
         );
         let process_group = inner.process_group;
         let session_id = inner.session_id;
-
-        let child_fs_base = if clone_args.flags.contains(CloneFlags::CLONE_SETTLS) {
-            clone_args.tls
-        } else {
-            fs_base
-        };
+        let parent_user_state = task_arch::current_user_state().ok()?;
+        let child_user_state = task_arch::clone_user_state(
+            parent_user_state,
+            clone_args.flags.contains(CloneFlags::CLONE_SETTLS),
+            clone_args.tls,
+        );
 
         let mmap = self.mmap.clone();
 
@@ -530,21 +514,12 @@ impl Task {
                     ss_flags: 0x2,
                     ss_size: 0,
                 },
-                fs_base: child_fs_base,
-                gs_base,
             }),
             send_sigchld_when_exit: clone_args.sig == SignalNumber::SIGCHLD,
         };
 
-        #[cfg(target_arch = "x86_64")]
-        let context = {
-            let mut context = TaskContext::new_user(VirtAddr::from(0));
-            context.set_fs_base(child_fs_base);
-            context.set_gs_base(gs_base);
-            context
-        };
-        #[cfg(target_arch = "riscv64")]
-        let context = TaskContext::new_user(VirtAddr::from(0));
+        let mut context = TaskContext::new_user(VirtAddr::from(0));
+        task_arch::apply_user_state(&mut context, child_user_state);
         let task_basic_info = TaskBasicInfo::new(task.tid.raw(), context);
         let scheduling_info = TaskSchedulingInfo::new(task.tid.raw(), 0, usize::MAX);
         let task_meta = TaskMeta::new(task_basic_info, scheduling_info);
@@ -561,8 +536,7 @@ impl Task {
 
         // 检查是否需要设置 tls
         if clone_args.flags.contains(CloneFlags::CLONE_SETTLS) {
-            #[cfg(target_arch = "riscv64")]
-            trap_context.update_tls(VirtAddr::from(clone_args.tls));
+            task_arch::apply_trap_tls(trap_context, clone_args.tls);
         }
 
         trace!("write tid to parent arg: {:#x?}", clone_args.ptid);
@@ -611,8 +585,6 @@ impl Task {
         );
         // set the name of the process
         inner.name = elf_info.name;
-        inner.fs_base = elf_info.tls;
-        inner.gs_base = 0;
         // close file which contains FD_CLOEXEC flag
         // now we delete all fd
         // reset signal handler
@@ -630,8 +602,9 @@ impl Task {
 
         *trap_frame =
             TrapFrame::new_user(elf_info.entry, user_sp, VirtAddr::from(self.kernel_stack));
-        #[cfg(target_arch = "riscv64")]
-        trap_frame.update_tls(VirtAddr::from(elf_info.tls)); // 设置 TLS
+        let user_arch_state = task_arch::initial_user_state(elf_info.tls);
+        task_arch::apply_trap_tls(trap_frame, elf_info.tls);
+        task_arch::set_current_user_state(user_arch_state)?;
         Ok(())
     }
 }

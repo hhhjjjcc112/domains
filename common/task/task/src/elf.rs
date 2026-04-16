@@ -9,28 +9,20 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use basic::{
-    config::*,
-    vaddr_to_paddr_in_kernel,
-    vm::frame::FrameTracker,
-    AlienError,
-    AlienResult,
-};
+use basic::{AlienError, AlienResult, config::*, vm::frame::FrameTracker};
 use memory_addr::{PhysAddr, VirtAddr};
-use page_table::{MappingFlags, NotLeafPage, PagingError, PagingIf};
 #[cfg(target_arch = "riscv64")]
 use page_table::Rv64PTE as ArchPTE;
 #[cfg(target_arch = "x86_64")]
 use page_table::X64PTE as ArchPTE;
+use page_table::{MappingFlags, NotLeafPage, PagingError, PagingIf};
 use ptable::*;
 use xmas_elf::{
-    program::{SegmentData, Type},
-    sections::SectionData,
-    symbol_table::Entry,
     ElfFile,
+    program::{SegmentData, Type},
 };
 
-use crate::vfs_shim;
+use crate::{arch as task_arch, vfs_shim};
 
 #[derive(Debug)]
 pub struct FrameTrackerWrapper(pub(crate) FrameTracker);
@@ -200,17 +192,15 @@ pub fn load_to_vm_space(
     let info = collect_load_info(elf, bias);
 
     for (index, section) in info.into_iter().enumerate() {
-        let vaddr = VirtAddr::from(section.start_vaddr).align_down_4k().as_usize();
+        let vaddr = VirtAddr::from(section.start_vaddr)
+            .align_down_4k()
+            .as_usize();
         let end_vaddr = VirtAddr::from(section.end_vaddr).align_up_4k().as_usize();
         break_addr = break_addr.max(section.end_vaddr);
         let total_pages = (end_vaddr - vaddr) / FRAME_SIZE;
         warn!(
             "[elf-load-v2] load segment: {:#x} - {:#x} -> {:#x}-{:#x}, permission: {:?}",
-            section.start_vaddr,
-            section.end_vaddr,
-            vaddr,
-            end_vaddr,
-            section.permission
+            section.start_vaddr, section.end_vaddr, vaddr, end_vaddr, section.permission
         );
 
         if section.file_size > section.end_vaddr.saturating_sub(section.start_vaddr) {
@@ -261,26 +251,14 @@ pub fn load_to_vm_space(
                         section.permission,
                         vec![Box::new(FrameTrackerWrapper(frame))],
                     );
-                    address_space
-                        .map(VmAreaType::VmArea(area))
-                        .map_err(|err| {
-                            error!(
-                                "segment {} map page {:#x} failed: {:?}",
-                                index,
-                                page,
-                                err
-                            );
-                            paging_err_to_alien(err)
-                        })?;
+                    address_space.map(VmAreaType::VmArea(area)).map_err(|err| {
+                        error!("segment {} map page {:#x} failed: {:?}", index, page, err);
+                        paging_err_to_alien(err)
+                    })?;
                     mapped_pages += 1;
                 }
                 Err(err) => {
-                    error!(
-                        "segment {} query page {:#x} failed: {:?}",
-                        index,
-                        page,
-                        err
-                    );
+                    error!("segment {} query page {:#x} failed: {:?}", index, page, err);
                     return Err(paging_err_to_alien(err));
                 }
             }
@@ -298,10 +276,7 @@ pub fn load_to_vm_space(
                     .map_err(|err| {
                         error!(
                             "segment {} write page data failed: va={:#x}, len={:#x}, err={:?}",
-                            index,
-                            copy_start,
-                            len,
-                            err
+                            index, copy_start, len, err
                         );
                         paging_err_to_alien(err)
                     })?;
@@ -314,150 +289,26 @@ pub fn load_to_vm_space(
         if copied != section.file_size {
             error!(
                 "segment {} copied size mismatch: copied={:#x}, file_size={:#x}",
-                index,
-                copied,
-                section.file_size
+                index, copied, section.file_size
             );
             return Err(AlienError::EINVAL);
         }
 
         warn!(
             "[elf-load-v2] segment {} done: new_pages={}, reused_pages={}, copied={:#x}, total_pages={}",
-            index,
-            mapped_pages,
-            reused_pages,
-            copied,
-            total_pages
+            index, mapped_pages, reused_pages, copied, total_pages
         );
     }
 
     Ok(break_addr)
 }
 
-fn relocate_dyn(elf: &ElfFile, bias: usize) -> AlienResult<Vec<(usize, usize)>> {
-    let mut res = vec![];
-    let data = elf
-        .find_section_by_name(".rela.dyn")
-        .unwrap()
-        .get_data(elf)
-        .unwrap();
-    let entries = match data {
-        SectionData::Rela64(entries) => entries,
-        _ => return Err(AlienError::EINVAL),
-    };
-    let dynsym = match elf
-        .find_section_by_name(".dynsym")
-        .unwrap()
-        .get_data(elf)
-        .unwrap()
-    {
-        SectionData::DynSymbolTable64(dsym) => dsym,
-        _ => return Err(AlienError::EINVAL),
-    };
-    for entry in entries.iter() {
-        // 按架构区分重定位常量，避免 x86_64 与 riscv64 混用。
-        #[cfg(target_arch = "x86_64")]
-        const REL_SYM_ABS: u32 = 1; // R_X86_64_64
-        #[cfg(target_arch = "x86_64")]
-        const REL_GOT: u32 = 6; // R_X86_64_GLOB_DAT
-        #[cfg(target_arch = "x86_64")]
-        const REL_PLT: u32 = 7; // R_X86_64_JUMP_SLOT
-        #[cfg(target_arch = "x86_64")]
-        const REL_RELATIVE: u32 = 8; // R_X86_64_RELATIVE
-
-        #[cfg(target_arch = "riscv64")]
-        const REL_SYM_ABS: u32 = 2; // R_RISCV_64
-        #[cfg(target_arch = "riscv64")]
-        const REL_RELATIVE: u32 = 3; // R_RISCV_RELATIVE
-
-        match entry.get_type() {
-            #[cfg(target_arch = "x86_64")]
-            REL_SYM_ABS | REL_GOT | REL_PLT => {
-                let dynsym = &dynsym[entry.get_symbol_table_index() as usize];
-                let symval = if dynsym.shndx() == 0 {
-                    let name = dynsym.get_name(elf).map_err(|_| AlienError::EINVAL)?;
-                    panic!("need to find symbol: {:?}", name);
-                } else {
-                    bias + dynsym.value() as usize
-                };
-                let value = symval + entry.get_addend() as usize;
-                let addr = bias + entry.get_offset() as usize;
-                res.push((addr, value))
-            }
-            #[cfg(target_arch = "riscv64")]
-            REL_SYM_ABS => {
-                let dynsym = &dynsym[entry.get_symbol_table_index() as usize];
-                let symval = if dynsym.shndx() == 0 {
-                    let name = dynsym.get_name(elf).map_err(|_| AlienError::EINVAL)?;
-                    panic!("need to find symbol: {:?}", name);
-                } else {
-                    bias + dynsym.value() as usize
-                };
-                let value = symval + entry.get_addend() as usize;
-                let addr = bias + entry.get_offset() as usize;
-                res.push((addr, value))
-            }
-            #[cfg(target_arch = "x86_64")]
-            REL_RELATIVE => {
-                let value = bias + entry.get_addend() as usize;
-                let addr = bias + entry.get_offset() as usize;
-                res.push((addr, value))
-            }
-            #[cfg(target_arch = "riscv64")]
-            REL_RELATIVE => {
-                let value = bias + entry.get_addend() as usize;
-                let addr = bias + entry.get_offset() as usize;
-                res.push((addr, value))
-            }
-            t => unimplemented!("unknown type: {}", t),
-        }
-    }
-    Ok(res)
+fn relocate_dyn(elf: &ElfFile<'_>, bias: usize) -> AlienResult<Vec<(usize, usize)>> {
+    task_arch::relocate_dyn(elf, bias)
 }
 
-fn relocate_plt(elf: &ElfFile, bias: usize) -> AlienResult<Vec<(usize, usize)>> {
-    let mut res = vec![];
-    let data = elf
-        .find_section_by_name(".rela.plt")
-        .ok_or(AlienError::EINVAL)?
-        .get_data(elf)
-        .map_err(|_| AlienError::EINVAL)?;
-    let entries = match data {
-        SectionData::Rela64(entries) => entries,
-        _ => return Err(AlienError::EINVAL),
-    };
-    let dynsym = match elf
-        .find_section_by_name(".dynsym")
-        .unwrap()
-        .get_data(elf)
-        .unwrap()
-    {
-        SectionData::DynSymbolTable64(dsym) => dsym,
-        _ => return Err(AlienError::EINVAL),
-    };
-    #[cfg(target_arch = "x86_64")]
-    const REL_PLT: u32 = 7; // R_X86_64_JUMP_SLOT
-    #[cfg(target_arch = "riscv64")]
-    const REL_PLT: u32 = 5; // R_RISCV_JUMP_SLOT
-
-    for entry in entries.iter() {
-        match entry.get_type() {
-            REL_PLT => {
-                let dynsym = &dynsym[entry.get_symbol_table_index() as usize];
-                let symval = if dynsym.shndx() == 0 {
-                    let name = dynsym.get_name(elf).map_err(|_| AlienError::EINVAL)?;
-                    panic!("symbol not found: {:?}", name);
-                } else {
-                    dynsym.value() as usize
-                };
-                let value = bias + symval;
-                let addr = bias + entry.get_offset() as usize;
-                res.push((addr, value))
-            }
-            t => panic!("[kernel] unknown entry, type = {}", t),
-        }
-    }
-    Ok(res)
+fn relocate_plt(elf: &ElfFile<'_>, bias: usize) -> AlienResult<Vec<(usize, usize)>> {
+    task_arch::relocate_plt(elf, bias)
 }
 
 pub fn build_vm_space(elf: &[u8], args: &mut Vec<String>, name: &str) -> AlienResult<ELFInfo> {
@@ -472,10 +323,7 @@ pub fn build_vm_space(elf: &[u8], args: &mut Vec<String>, name: &str) -> AlienRe
             _ => return Err(AlienError::EINVAL),
         };
         let path = core::str::from_utf8(data).unwrap();
-        #[cfg(target_arch = "riscv64")]
-        assert!(path.starts_with("/lib/ld-musl-riscv64"));
-        #[cfg(target_arch = "x86_64")]
-        assert!(path.starts_with("/lib/ld-musl-x86_64"));
+        task_arch::validate_interp_path(path);
         let mut new_args = vec!["/libc.so\0".to_string()];
         new_args.extend(args.clone());
         *args = new_args;
@@ -551,66 +399,7 @@ pub fn build_vm_space(elf: &[u8], args: &mut Vec<String>, name: &str) -> AlienRe
         .map(VmAreaType::VmArea(trampoline_area))
         .map_err(paging_err_to_alien)?;
 
-    #[cfg(target_arch = "x86_64")]
-    {
-        // 仅覆盖 CPU0 的 percpu 镜像页，满足 syscall 入口早期 gs 访存。
-        const PERCPU_USER_MAP_SIZE: usize = 0x20_000;
-        let mut percpu_frames: Vec<Box<dyn PhysPage>> = Vec::new();
-        for off in (0..PERCPU_USER_MAP_SIZE).step_by(FRAME_SIZE) {
-            let va = PERCPU_MIRROR_BASE + off;
-            let pa = match vaddr_to_paddr_in_kernel(va) {
-                Ok(pa) => pa,
-                Err(err) => {
-                    if off == 0 {
-                        warn!(
-                            "skip percpu mirror map: va={:#x}, err={:?}",
-                            va,
-                            err
-                        );
-                    }
-                    break;
-                }
-            };
-            let frame = FrameTracker::from_phy_range(pa..(pa + FRAME_SIZE));
-            percpu_frames.push(Box::new(FrameTrackerWrapper(frame)));
-        }
-        if !percpu_frames.is_empty() {
-            let mapped_size = percpu_frames.len() * FRAME_SIZE;
-            let percpu_area = VmArea::new(
-                PERCPU_MIRROR_BASE..(PERCPU_MIRROR_BASE + mapped_size),
-                MappingFlags::READ | MappingFlags::WRITE,
-                percpu_frames,
-            );
-            address_space
-                .map(VmAreaType::VmArea(percpu_area))
-                .map_err(paging_err_to_alien)?;
-        }
-
-        // 过渡方案：补齐内核低地址核心区映射，确保 iret/syscall 所需描述符表可见。
-        const KERNEL_CORE_MAP_START: usize = 0x20_0000;
-        const KERNEL_CORE_MAP_SIZE: usize = 0xA0_0000;
-        let mut core_frames: Vec<Box<dyn PhysPage>> = Vec::new();
-        for off in (0..KERNEL_CORE_MAP_SIZE).step_by(FRAME_SIZE) {
-            let va = KERNEL_CORE_MAP_START + off;
-            let pa = match vaddr_to_paddr_in_kernel(va) {
-                Ok(pa) => pa,
-                Err(_) => break,
-            };
-            let frame = FrameTracker::from_phy_range(pa..(pa + FRAME_SIZE));
-            core_frames.push(Box::new(FrameTrackerWrapper(frame)));
-        }
-        if !core_frames.is_empty() {
-            let mapped_size = core_frames.len() * FRAME_SIZE;
-            let area = VmArea::new(
-                KERNEL_CORE_MAP_START..(KERNEL_CORE_MAP_START + mapped_size),
-                MappingFlags::READ | MappingFlags::WRITE,
-                core_frames,
-            );
-            address_space
-                .map(VmAreaType::VmArea(area))
-                .map_err(paging_err_to_alien)?;
-        }
-    }
+    task_arch::map_extra_user_regions(&mut address_space)?;
 
     let res = if let Some(phdr) = elf
         .program_iter()

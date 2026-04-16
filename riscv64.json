@@ -19,7 +19,9 @@
     "tier": null
   },
   "panic-strategy": "unwind",
-  "relocation-model": "static",
+  "position-independent-executables": true,
+  "relocation-model": "pic",
+  "static-position-independent-executables": true,
   "supported-sanitizers": [
     "kernel-address"
   ],

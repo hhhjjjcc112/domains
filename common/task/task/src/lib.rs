@@ -4,6 +4,7 @@
 extern crate alloc;
 #[macro_use]
 extern crate log;
+mod arch;
 mod elf;
 mod futex;
 mod init;
@@ -18,14 +19,17 @@ mod vfs_shim;
 use alloc::{boxed::Box, sync::Arc};
 use core::ops::Range;
 
-use basic::{println, AlienError, AlienResult};
+use basic::{AlienError, AlienResult, println};
 use interface::{
-    define_unwind_for_TaskDomain, Basic, DomainType, InodeID, TaskDomain, TmpHeapInfo,
+    Basic, DomainType, InodeID, TaskDomain, TmpHeapInfo, define_unwind_for_TaskDomain,
 };
 use memory_addr::VirtAddr;
 use shared_heap::{DBox, DVec};
 
-use crate::{processor::{current_task, find_task_by_pid}, vfs_shim::ShimFile};
+use crate::{
+    processor::{current_task, find_task_by_pid},
+    vfs_shim::ShimFile,
+};
 
 #[derive(Debug)]
 pub struct TaskDomainImpl {}
@@ -212,60 +216,24 @@ impl TaskDomain for TaskDomainImpl {
         Ok(task.tid() as _)
     }
 
+    #[cfg(target_arch = "x86_64")]
     fn do_set_fs_base(&self, fs_base: usize) -> AlienResult<()> {
-        #[cfg(target_arch = "x86_64")]
-        {
-            let task = current_task().ok_or(AlienError::EINVAL)?;
-            task.inner.lock().fs_base = fs_base;
-            return Ok(());
-        }
-
-        #[cfg(not(target_arch = "x86_64"))]
-        {
-            let _ = fs_base;
-            Err(AlienError::ENOSYS)
-        }
+        arch::set_current_user_fs_base(fs_base)
     }
 
+    #[cfg(target_arch = "x86_64")]
     fn do_get_fs_base(&self) -> AlienResult<usize> {
-        #[cfg(target_arch = "x86_64")]
-        {
-            let task = current_task().ok_or(AlienError::EINVAL)?;
-            return Ok(task.inner.lock().fs_base);
-        }
-
-        #[cfg(not(target_arch = "x86_64"))]
-        {
-            Err(AlienError::ENOSYS)
-        }
+        arch::current_user_fs_base()
     }
 
+    #[cfg(target_arch = "x86_64")]
     fn do_set_gs_base(&self, gs_base: usize) -> AlienResult<()> {
-        #[cfg(target_arch = "x86_64")]
-        {
-            let task = current_task().ok_or(AlienError::EINVAL)?;
-            task.inner.lock().gs_base = gs_base;
-            return Ok(());
-        }
-
-        #[cfg(not(target_arch = "x86_64"))]
-        {
-            let _ = gs_base;
-            Err(AlienError::ENOSYS)
-        }
+        arch::set_current_user_gs_base(gs_base)
     }
 
+    #[cfg(target_arch = "x86_64")]
     fn do_get_gs_base(&self) -> AlienResult<usize> {
-        #[cfg(target_arch = "x86_64")]
-        {
-            let task = current_task().ok_or(AlienError::EINVAL)?;
-            return Ok(task.inner.lock().gs_base);
-        }
-
-        #[cfg(not(target_arch = "x86_64"))]
-        {
-            Err(AlienError::ENOSYS)
-        }
+        arch::current_user_gs_base()
     }
 
     fn do_get_pgid(&self, pid: usize) -> AlienResult<usize> {

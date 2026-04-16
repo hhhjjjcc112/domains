@@ -4,7 +4,6 @@ domain = "run -p domain --"
 [target.riscv64]
 # --cfg getrandom_backend="linux_getrandom"
 rustflags = [
-    "-C", "relocation-model=pic",
     "-Clink-arg=-pie",
     "-A", "unused_imports",
     "--cfg", "getrandom_backend=\"custom\""
@@ -14,7 +13,6 @@ linker = "rust-lld"
 
 [target.x86_64]
 rustflags = [
-    "-C", "relocation-model=pic",
     "-Clink-arg=-pie",
     "-A", "unused_imports",
     "--cfg", "getrandom_backend=\"custom\""
