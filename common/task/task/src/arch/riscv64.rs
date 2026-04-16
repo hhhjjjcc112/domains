@@ -5,7 +5,7 @@ use basic::{
     task::{TaskContext, TrapFrame},
 };
 use ptable::VmSpace;
-use xmas_elf::{ElfFile, sections::SectionData};
+use xmas_elf::{ElfFile, sections::SectionData, symbol_table::Entry};
 
 use super::UserArchState;
 use crate::elf::VmmPageAllocator;

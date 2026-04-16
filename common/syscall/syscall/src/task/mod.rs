@@ -115,6 +115,11 @@ pub fn sys_set_tid_address(task_domain: &Arc<dyn TaskDomain>, tidptr: usize) -> 
     task_domain.do_set_tid_address(tidptr)
 }
 
+/// umask：读取当前掩码并设置新掩码，返回旧值。
+pub fn sys_umask(task_domain: &Arc<dyn TaskDomain>, mask: usize) -> AlienResult<isize> {
+    task_domain.do_umask(mask as u32).map(|old| old as isize)
+}
+
 #[cfg(target_arch = "x86_64")]
 /// arch_prctl：x86_64 的 FS/GS 基址控制；`code` 决定操作，`addr` 是用户态地址或读回位置。
 pub fn sys_arch_prctl(
@@ -182,6 +187,7 @@ pub fn sys_get_pgid(task_domain: &Arc<dyn TaskDomain>, pid: usize) -> AlienResul
 }
 
 /// getpgrp：返回当前进程组 ID。
+#[cfg(target_arch = "x86_64")]
 pub fn sys_get_pgrp(task_domain: &Arc<dyn TaskDomain>) -> AlienResult<isize> {
     task_domain.current_pgid().map(|pgid| pgid as isize)
 }

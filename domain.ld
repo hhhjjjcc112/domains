@@ -9,6 +9,7 @@ SECTIONS
         stext = .;
         __executable_start = .;
         *(.text .text.*);
+        *(.plt .plt.*)
         . = ALIGN(4K);
         etext = .;
        __etext = .;
@@ -30,10 +31,53 @@ SECTIONS
         edata = .;
     }
 
+    .dynamic : ALIGN(4096) {
+        *(.dynamic .dynamic.*)
+    }
+
+    .got : ALIGN(4096) {
+        *(.got .got.*)
+        *(.got.plt .got.plt.*)
+    }
+
     .rela.dyn : ALIGN(4096) {
         __rela_dyn_start = .;
         *(.rela.dyn .rela.dyn*)
         __rela_dyn_end = .;
+    }
+
+    .rela.plt : ALIGN(4096) {
+        __rela_plt_start = .;
+        *(.rela.plt .rela.plt.*)
+        __rela_plt_end = .;
+    }
+
+    .dynsym : ALIGN(4096) {
+        *(.dynsym .dynsym.*)
+    }
+
+    .dynstr : ALIGN(4096) {
+        *(.dynstr .dynstr.*)
+    }
+
+    .gnu.version : ALIGN(4096) {
+        *(.gnu.version .gnu.version.*)
+    }
+
+    .gnu.version_d : ALIGN(4096) {
+        *(.gnu.version_d .gnu.version_d.*)
+    }
+
+    .gnu.version_r : ALIGN(4096) {
+        *(.gnu.version_r .gnu.version_r.*)
+    }
+
+    .hash : ALIGN(4096) {
+        *(.hash)
+    }
+
+    .gnu.hash : ALIGN(4096) {
+        *(.gnu.hash)
     }
 
     .bss :  ALIGN(4096){
@@ -43,6 +87,25 @@ SECTIONS
         . = ALIGN(4K);
         ebss = .;
     }
+
+    /* 域镜像不应携带 percpu 运行时数据；这里只保留空段和断言，
+       用来在链接期拦截误引入的 percpu 符号。 */
+    .percpu : ALIGN(4096) {
+        *(.percpu .percpu.*)
+    }
+
+    /* TLS 同样不属于域镜像的常规布局，保持为空，避免后续误用。 */
+    .tdata : ALIGN(4096) {
+        *(.tdata .tdata.*)
+    }
+
+    .tbss : ALIGN(4096) {
+        *(.tbss .tbss.*)
+    }
+
+    ASSERT(SIZEOF(.percpu) == 0, "domain must not contain .percpu")
+    ASSERT(SIZEOF(.tdata) == 0, "domain must not contain .tdata")
+    ASSERT(SIZEOF(.tbss) == 0, "domain must not contain .tbss")
 
     .gcc_except_table : ALIGN(4K){
         kernel_gcc_except_table = .;
@@ -67,9 +130,6 @@ SECTIONS
     /DISCARD/ :
     {
         *(.interp)
-        *(.dynstr)
-        *(.hash)
-        *(.gnu.hash)
         *(.header)
     } : phdr
     PROVIDE(end = .);

@@ -124,6 +124,14 @@ impl TaskDomain for TaskDomainImpl {
         task.inner().fs_info.cwd = Arc::new(ShimFile::new(inode));
         Ok(())
     }
+
+    fn do_umask(&self, mask: u32) -> AlienResult<u32> {
+        let task = current_task().unwrap();
+        let mut inner = task.inner();
+        let old_mask = inner.umask;
+        inner.umask = mask & 0o777;
+        Ok(old_mask)
+    }
     fn copy_to_user(&self, dst: usize, buf: &[u8]) -> AlienResult<()> {
         let task = current_task().unwrap();
         task.write_bytes_to_user(VirtAddr::from(dst), buf)

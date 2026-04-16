@@ -8,6 +8,8 @@ use basic::{
     time::{TimeNow, ToClock},
     AlienError, AlienResult,
 };
+#[cfg(target_arch = "x86_64")]
+use basic::constants::time::TimeVal;
 use bit_field::BitField;
 use interface::{TaskDomain, VfsDomain};
 use log::{debug, info};
@@ -418,6 +420,168 @@ pub fn sys_sendfile(
     Ok(total as isize)
 }
 
+fn select_common(
+    vfs: &Arc<dyn VfsDomain>,
+    task_domain: &Arc<dyn TaskDomain>,
+    args: SelectArgs,
+    timeout: Option<TimeSpec>,
+) -> AlienResult<isize> {
+    let SelectArgs {
+        nfds,
+        readfds,
+        writefds,
+        exceptfds,
+        timeout: timeout_ptr,
+        sigmask,
+    } = args;
+    debug!(
+        "<select_common> nfds: {:?} readfds: {:?} writefds: {:?} exceptfds: {:?} timeout: {:?} sigmask: {:?}",
+        nfds, readfds, writefds, exceptfds, timeout_ptr, sigmask
+    );
+    if nfds >= MAX_FD_NUM {
+        return Err(AlienError::EINVAL);
+    }
+
+    let (wait_time, timeout_is_zero) = match timeout {
+        Some(time_spec) => (
+            Some(time_spec.to_clock() + TimeSpec::now().to_clock()),
+            time_spec == TimeSpec::new(0, 0),
+        ),
+        None => (None, false),
+    };
+
+    let nfds = min(nfds, 64);
+    let ori_readfds = if readfds != 0 {
+        task_domain.read_val_from_user::<u64>(readfds)?
+    } else {
+        0
+    };
+    let ori_writefds = if writefds != 0 {
+        task_domain.read_val_from_user::<u64>(writefds)?
+    } else {
+        0
+    };
+    let ori_exceptfds = if exceptfds != 0 {
+        task_domain.read_val_from_user::<u64>(exceptfds)?
+    } else {
+        0
+    };
+
+    loop {
+        let mut set = 0;
+        if readfds != 0 {
+            let mut readfds_mask = ori_readfds;
+            for i in 0..nfds {
+                if ori_readfds.get_bit(i) {
+                    let inode_id = task_domain.get_fd(i)?;
+                    let event = vfs.vfs_poll(inode_id, VfsPollEvents::IN).expect("poll error");
+                    if event.contains(VfsPollEvents::IN) {
+                        debug!("select: fd {} ready to read", i);
+                        readfds_mask.set_bit(i, true);
+                        set += 1;
+                    } else {
+                        readfds_mask.set_bit(i, false);
+                    }
+                }
+            }
+            task_domain.write_val_to_user(readfds, &readfds_mask)?;
+        }
+        if writefds != 0 {
+            let mut writefds_mask = ori_writefds;
+            for i in 0..nfds {
+                if ori_writefds.get_bit(i) {
+                    let inode_id = task_domain.get_fd(i)?;
+                    let event = vfs.vfs_poll(inode_id, VfsPollEvents::OUT).expect("poll error");
+                    if event.contains(VfsPollEvents::OUT) {
+                        debug!("select: fd {} ready to write", i);
+                        writefds_mask.set_bit(i, true);
+                        set += 1;
+                    } else {
+                        writefds_mask.set_bit(i, false);
+                    }
+                }
+            }
+            task_domain.write_val_to_user(writefds, &writefds_mask)?;
+        }
+        if exceptfds != 0 {
+            let mut exceptfds_mask = ori_exceptfds;
+            for i in 0..nfds {
+                if ori_exceptfds.get_bit(i) {
+                    let inode_id = task_domain.get_fd(i)?;
+                    let event = vfs.vfs_poll(inode_id, VfsPollEvents::ERR).expect("poll error");
+                    if event.contains(VfsPollEvents::ERR) {
+                        debug!("select: fd {} ready to except", i);
+                        exceptfds_mask.set_bit(i, true);
+                        set += 1;
+                    } else {
+                        exceptfds_mask.set_bit(i, false);
+                    }
+                }
+            }
+            task_domain.write_val_to_user(exceptfds, &exceptfds_mask)?;
+        }
+
+        if set > 0 {
+            return Ok(set as isize);
+        }
+
+        if timeout_is_zero {
+            return Ok(0);
+        }
+
+        basic::yield_now()?;
+
+        if let Some(wait_time) = wait_time {
+            if wait_time <= TimeSpec::now().to_clock() {
+                debug!(
+                    "select timeout, wait_time = {:#x}, now = {:#x}",
+                    wait_time,
+                    TimeSpec::now().to_clock()
+                );
+                return Ok(0);
+            }
+        }
+    }
+}
+
+/// pread64：`fd` 是目标描述符，`buf/len` 是输出缓冲区，`offset` 是读取偏移。
+pub fn sys_pread64(
+    vfs: &Arc<dyn VfsDomain>,
+    task_domain: &Arc<dyn TaskDomain>,
+    fd: usize,
+    buf: usize,
+    len: usize,
+    offset: usize,
+) -> AlienResult<isize> {
+    let file = task_domain.get_fd(fd)?;
+    if len == 0 {
+        return Ok(0);
+    }
+    let tmp_buf = DVec::<u8>::new_uninit(len);
+    let (tmp_buf, r) = vfs.vfs_read_at(file, offset as u64, tmp_buf)?;
+    task_domain.copy_to_user(buf, &tmp_buf.as_slice()[..r])?;
+    Ok(r as isize)
+}
+
+/// pwrite64：`fd` 是目标描述符，`buf/len` 是输入缓冲区，`offset` 是写入偏移。
+pub fn sys_pwrite64(
+    vfs: &Arc<dyn VfsDomain>,
+    task_domain: &Arc<dyn TaskDomain>,
+    fd: usize,
+    buf: usize,
+    len: usize,
+    offset: usize,
+) -> AlienResult<isize> {
+    let file = task_domain.get_fd(fd)?;
+    if len == 0 {
+        return Ok(0);
+    }
+    let mut tmp_buf = DVec::<u8>::new_uninit(len);
+    task_domain.copy_from_user(buf, tmp_buf.as_mut_slice())?;
+    let w = vfs.vfs_write_at(file, offset as u64, &tmp_buf, len)?;
+    Ok(w as isize)
+}
+
 /// pselect6 的参数打包；`nfds` 是监控上限，`readfds/writefds/exceptfds` 是位图指针，`timeout/sigmask` 是用户态结构指针。
 pub struct SelectArgs {
     pub nfds: usize,
@@ -434,132 +598,46 @@ pub fn sys_pselect6(
     task_domain: &Arc<dyn TaskDomain>,
     args: SelectArgs,
 ) -> AlienResult<isize> {
-    let SelectArgs {
-        nfds,
-        readfds,
-        writefds,
-        exceptfds,
+    let timeout = if args.timeout != 0 {
+        let time_spec = task_domain.read_val_from_user::<TimeSpec>(args.timeout)?;
+        debug!("pselect6: timeout = {:#x} ---> {:?}", args.timeout, time_spec);
+        Some(time_spec)
+    } else {
+        None
+    };
+    select_common(vfs, task_domain, args, timeout)
+}
+
+/// select：`nfds` 是监控上限，`timeout` 是 timeval 结构指针。
+#[cfg(target_arch = "x86_64")]
+pub fn sys_select(
+    vfs: &Arc<dyn VfsDomain>,
+    task_domain: &Arc<dyn TaskDomain>,
+    nfds: usize,
+    readfds: usize,
+    writefds: usize,
+    exceptfds: usize,
+    timeout: usize,
+) -> AlienResult<isize> {
+    let timeout = if timeout != 0 {
+        let time_val = task_domain.read_val_from_user::<TimeVal>(timeout)?;
+        Some(TimeSpec::new(time_val.tv_sec, time_val.tv_usec * 1_000))
+    } else {
+        None
+    };
+    select_common(
+        vfs,
+        task_domain,
+        SelectArgs {
+            nfds,
+            readfds,
+            writefds,
+            exceptfds,
+            timeout: 0,
+            sigmask: 0,
+        },
         timeout,
-        sigmask,
-    } = args;
-    debug!(
-        "<sys_pselect6> nfds: {:?} readfds: {:?} writefds: {:?} exceptfds: {:?} timeout: {:?} sigmask: {:?}",
-        nfds, readfds, writefds, exceptfds, timeout, sigmask
-    );
-    if nfds >= MAX_FD_NUM {
-        return Err(AlienError::EINVAL);
-    }
-    let (wait_time, time_spec) = if timeout != 0 {
-        let time_spec = task_domain.read_val_from_user::<TimeSpec>(timeout)?;
-        debug!("pselect6: timeout = {:#x} ---> {:?}", timeout, time_spec);
-        (
-            Some(time_spec.to_clock() + TimeSpec::now().to_clock()),
-            Some(time_spec),
-        )
-    } else {
-        (Some(usize::MAX), None)
-    };
-    let nfds = min(nfds, 64);
-    let ori_readfds = if readfds != 0 {
-        task_domain.read_val_from_user::<u64>(readfds)?
-    } else {
-        0
-    };
-
-    let ori_writefds = if writefds != 0 {
-        task_domain.read_val_from_user::<u64>(writefds)?
-    } else {
-        0
-    };
-
-    let ori_exceptfds = if exceptfds != 0 {
-        task_domain.read_val_from_user::<u64>(exceptfds)?
-    } else {
-        0
-    };
-
-    loop {
-        let mut set = 0;
-        if readfds != 0 {
-            let mut readfds_mask = ori_readfds;
-            for i in 0..nfds {
-                if ori_readfds.get_bit(i) {
-                    let inode_id = task_domain.get_fd(i)?;
-                    let event = vfs
-                        .vfs_poll(inode_id, VfsPollEvents::IN)
-                        .expect("poll error");
-                    if event.contains(VfsPollEvents::IN) {
-                        debug!("pselect6: fd {} ready to read", i);
-                        readfds_mask.set_bit(i, true);
-                        set += 1;
-                    } else {
-                        readfds_mask.set_bit(i, false);
-                    }
-                }
-            }
-            task_domain.write_val_to_user(readfds, &readfds_mask)?;
-        }
-        if writefds != 0 {
-            let mut writefds_mask = ori_writefds;
-            for i in 0..nfds {
-                if ori_writefds.get_bit(i) {
-                    let inode_id = task_domain.get_fd(i)?;
-                    let event = vfs
-                        .vfs_poll(inode_id, VfsPollEvents::OUT)
-                        .expect("poll error");
-                    if event.contains(VfsPollEvents::OUT) {
-                        debug!("pselect6: fd {} ready to write", i);
-                        writefds_mask.set_bit(i, true);
-                        set += 1;
-                    } else {
-                        writefds_mask.set_bit(i, false);
-                    }
-                }
-            }
-            task_domain.write_val_to_user(writefds, &writefds_mask)?;
-        }
-        if exceptfds != 0 {
-            let mut exceptfds_mask = ori_exceptfds;
-            for i in 0..nfds {
-                if ori_exceptfds.get_bit(i) {
-                    let inode_id = task_domain.get_fd(i)?;
-                    let event = vfs
-                        .vfs_poll(inode_id, VfsPollEvents::ERR)
-                        .expect("poll error");
-                    if event.contains(VfsPollEvents::ERR) {
-                        debug!("pselect6: fd {} ready to except", i);
-                        exceptfds_mask.set_bit(i, true);
-                        set += 1;
-                    } else {
-                        exceptfds_mask.set_bit(i, false);
-                    }
-                }
-            }
-            task_domain.write_val_to_user(exceptfds, &exceptfds_mask)?;
-        }
-        if set > 0 {
-            return Ok(set as isize);
-        }
-
-        if let Some(time_spec) = time_spec {
-            if time_spec == TimeSpec::new(0, 0) {
-                return Ok(0);
-            }
-        }
-
-        basic::yield_now()?;
-
-        if let Some(wait_time) = wait_time {
-            if wait_time <= TimeSpec::now().to_clock() {
-                debug!(
-                    "select timeout, wait_time = {:#x}, now = {:#x}",
-                    wait_time,
-                    TimeSpec::now().to_clock()
-                );
-                return Ok(0);
-            }
-        }
-    }
+    )
 }
 
 /// ppoll：`fds_ptr/nfds` 是 pollfd 数组，`timeout` 是超时指针或 poll 毫秒值，`sigmask` 是信号掩码参数。
@@ -664,6 +742,20 @@ pub fn sys_chdir(
     let (_, current_root) = user_path_at(task_domain, AT_FDCWD, path)?;
     let id = vfs.vfs_open(current_root, &tmp_buf, len, 0, 0)?;
     task_domain.set_cwd(id)?;
+    Ok(0)
+}
+
+/// fchdir：`fd` 是目标目录文件描述符。
+pub fn sys_fchdir(
+    vfs: &Arc<dyn VfsDomain>,
+    task_domain: &Arc<dyn TaskDomain>,
+    fd: usize,
+) -> AlienResult<isize> {
+    let inode = task_domain.get_fd(fd)?;
+    if !vfs.vfs_inode_type(inode)?.is_dir() {
+        return Err(AlienError::ENOTDIR);
+    }
+    task_domain.set_cwd(inode)?;
     Ok(0)
 }
 

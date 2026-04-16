@@ -88,6 +88,8 @@ pub struct TaskInner {
     pub children: BTreeMap<usize, Arc<Task>>,
     /// 文件系统的信息
     pub fs_info: FsContext,
+    /// 进程文件创建掩码
+    pub umask: u32,
     /// 返回值
     pub exit_code: i32,
     /// 子线程初始化时，将这个地址清空；子线程退出时，触发这里的 futex。
@@ -340,6 +342,7 @@ impl Task {
                 parent: None,
                 children: BTreeMap::new(),
                 fs_info: FsContext::new(VFS_ROOT_ID, VFS_ROOT_ID),
+                umask: 0o022,
                 exit_code: 0,
                 clear_child_tid: 0,
                 stack: stack_info,
@@ -440,6 +443,7 @@ impl Task {
             inner.fs_info.clone(),
             inner.stack.clone(),
         );
+        let umask = inner.umask;
         let process_group = inner.process_group;
         let session_id = inner.session_id;
         let parent_user_state = task_arch::current_user_state().ok()?;
@@ -501,6 +505,7 @@ impl Task {
                 parent,
                 children: BTreeMap::new(),
                 fs_info,
+                umask,
                 exit_code: 0,
                 clear_child_tid: if clone_args.flags.contains(CloneFlags::CLONE_CHILD_CLEARTID) {
                     clone_args.ctid

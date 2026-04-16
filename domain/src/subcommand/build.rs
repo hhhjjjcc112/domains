@@ -77,6 +77,7 @@ fn gen_domain_linker_script(target_dir: &str) -> PathBuf {
         _ => unreachable!(),
     };
     let template_path = Path::new("./domain.ld");
+    // 以 domain.ld 为模板生成最终脚本，只替换 OUTPUT_ARCH，其他段布局和注释都保持一致。
     let template = fs::read_to_string(template_path).expect("failed to read domain.ld template");
     let linker_script = template
         .lines()
@@ -141,6 +142,7 @@ pub fn build_domain(name: &str, log: String, dir: &str, output: &String) {
             let path = Path::new(&path);
             println!("Start building domain,path: {:?}", path);
             // 仅动态传入临时链接脚本，其他编译参数保持在 .cargo/config.toml。
+            // 域镜像按 PIE 方式构建，运行时由 loader 依据实际装载基址做重定位平移。
             let status = std::process::Command::new("cargo")
                 .arg("rustc")
                 .arg("--release")

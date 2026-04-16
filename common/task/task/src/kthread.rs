@@ -58,6 +58,7 @@ pub fn ktread_create(func: fn(), name: &str) -> AlienResult<()> {
             parent: None,
             children: BTreeMap::new(),
             fs_info: FsContext::new(VFS_ROOT_ID, VFS_ROOT_ID),
+            umask: 0o022,
             exit_code: 0,
             clear_child_tid: 0,
             // user mode stack info
