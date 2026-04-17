@@ -40,10 +40,6 @@ gcmos_rtc = { path = "../domains/drivers/cmos_rtc/gcmos_rtc" }
 cmos_rtc = { path = "../domains/drivers/cmos_rtc/cmos_rtc" }
 ghpet = { path = "../domains/drivers/hpet/ghpet" }
 hpet = { path = "../domains/drivers/hpet/hpet" }
-gio_apic = { path = "../domains/drivers/io_apic/gio_apic" }
-io_apic = { path = "../domains/drivers/io_apic/io_apic" }
-glocal_apic = { path = "../domains/drivers/local_apic/glocal_apic" }
-local_apic = { path = "../domains/drivers/local_apic/local_apic" }
 gloopback = { path = "../domains/drivers/loopback/gloopback" }
 loopback = { path = "../domains/drivers/loopback/loopback" }
 gmem_block = { path = "../domains/drivers/mem_block/gmem_block" }

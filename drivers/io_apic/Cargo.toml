@@ -1,7 +1,0 @@
-[workspace]
-members = [
-    "io_apic",
-    "gio_apic",
-]
-
-resolver = "2"

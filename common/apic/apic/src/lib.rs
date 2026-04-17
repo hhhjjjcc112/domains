@@ -1,6 +1,9 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+#[cfg(not(target_arch = "x86_64"))]
+compile_error!("apic domain 仅支持 x86_64");
+
 extern crate alloc;
 
 use alloc::{
@@ -17,9 +20,7 @@ use core::{
 
 use basic::sync::Mutex;
 use basic::{println, AlienResult};
-#[cfg(target_arch = "riscv64")]
-use interface::define_unwind_for_APICDomain;
-use interface::{APICDomain, Basic, DeviceBase};
+use interface::{define_unwind_for_APICDomain, APICDomain, Basic, DeviceBase};
 use shared_heap::DVec;
 
 enum DeviceDomain {
@@ -99,16 +100,8 @@ impl APICDomain for APICDomainImpl {
     }
 }
 
-#[cfg(target_arch = "riscv64")]
 define_unwind_for_APICDomain!(APICDomainImpl);
 
 pub fn main() -> Box<dyn APICDomain> {
-    #[cfg(target_arch = "riscv64")]
-    {
-        Box::new(UnwindWrap::new(APICDomainImpl::default()))
-    }
-    #[cfg(target_arch = "x86_64")]
-    {
-        Box::new(APICDomainImpl::default())
-    }
+    Box::new(UnwindWrap::new(APICDomainImpl::default()))
 }
