@@ -9,7 +9,6 @@ use alloc::{
 use core::{fmt::Debug, ops::Range};
 
 use basic::{
-    AlienResult,
     arch::cpu_id,
     config::*,
     constants::{
@@ -20,6 +19,7 @@ use basic::{
     sync::{Mutex, MutexGuard},
     task::{TaskContext, TaskContextExt, TrapFrame},
     vm::frame::FrameTracker,
+    AlienResult,
 };
 use interface::{InodeID, VFS_ROOT_ID};
 use memory_addr::{PhysAddr, VirtAddr};
@@ -32,11 +32,11 @@ use task_meta::{TaskBasicInfo, TaskMeta, TaskSchedulingInfo, TaskStatus};
 use crate::{
     arch as task_arch,
     elf::{
-        FrameTrackerWrapper, VmmPageAllocator, build_vm_space, clone_vm_space,
-        extend_thread_vm_space,
+        build_vm_space, clone_vm_space, extend_thread_vm_space, FrameTrackerWrapper,
+        VmmPageAllocator,
     },
     resource::{AuxVec, FdManager, HeapInfo, MMapInfo, ResourceLimits, TidHandle, UserStack},
-    vfs_shim::{STDIN, STDOUT, ShimFile},
+    vfs_shim::{ShimFile, STDIN, STDOUT},
 };
 
 #[derive(Debug)]
@@ -526,7 +526,12 @@ impl Task {
         let mut context = TaskContext::new_user(VirtAddr::from(0));
         task_arch::apply_user_state(&mut context, child_user_state);
         let task_basic_info = TaskBasicInfo::new(task.tid.raw(), context);
-        let scheduling_info = TaskSchedulingInfo::new(task.tid.raw(), 0, usize::MAX);
+        let inherited_cpus_allowed = if cfg!(target_arch = "x86_64") {
+            1 << cpu_id()
+        } else {
+            usize::MAX
+        };
+        let scheduling_info = TaskSchedulingInfo::new(task.tid.raw(), 0, inherited_cpus_allowed);
         let task_meta = TaskMeta::new(task_basic_info, scheduling_info);
 
         let k_stack_top = basic::add_one_task(task_meta).unwrap();
