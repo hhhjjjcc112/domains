@@ -39,6 +39,10 @@ use crate::{
     vfs_shim::{ShimFile, STDIN, STDOUT},
 };
 
+fn default_cpus_allowed() -> usize {
+    usize::MAX
+}
+
 #[derive(Debug)]
 pub struct Task {
     /// 任务的唯一标识
@@ -526,23 +530,42 @@ impl Task {
         let mut context = TaskContext::new_user(VirtAddr::from(0));
         task_arch::apply_user_state(&mut context, child_user_state);
         let task_basic_info = TaskBasicInfo::new(task.tid.raw(), context);
-        let inherited_cpus_allowed = if cfg!(target_arch = "x86_64") {
-            1 << cpu_id()
-        } else {
-            usize::MAX
-        };
+        let inherited_cpus_allowed = default_cpus_allowed();
+        info!(
+            "<do_clone> tid={}, inherited_cpus_allowed={:#x}",
+            task.tid(),
+            inherited_cpus_allowed
+        );
         let scheduling_info = TaskSchedulingInfo::new(task.tid.raw(), 0, inherited_cpus_allowed);
         let task_meta = TaskMeta::new(task_basic_info, scheduling_info);
 
         let k_stack_top = basic::add_one_task(task_meta).unwrap();
         task.kernel_stack = k_stack_top;
-
-        // let old_trap_context = self.trap_frame();
         let trap_context = task.trap_frame();
+        let old_trap_context = *self.trap_frame();
 
-        // *trap_context = *old_trap_context;
+        info!(
+            "<do_clone> parent_tid={}, child_tid={}, thread_num={}, k_stack_top={:#x}, parent_rip={:#x}, parent_rsp={:#x}, parent_rax={:#x}",
+            self.tid(),
+            task.tid(),
+            thread_num,
+            k_stack_top,
+            old_trap_context.rip,
+            old_trap_context.rsp,
+            old_trap_context.rax,
+        );
+
+        *trap_context = old_trap_context;
+        trap_context.update_result(0);
+
         // 设置内核栈地址
         trap_context.update_k_sp(VirtAddr::from(k_stack_top));
+        info!(
+            "<do_clone> child trap ready tid={}, user_rsp={:#x}, k_sp={:#x}",
+            task.tid(),
+            trap_context.rsp,
+            trap_context.kernel_sp().as_usize(),
+        );
 
         // 检查是否需要设置 tls
         if clone_args.flags.contains(CloneFlags::CLONE_SETTLS) {
