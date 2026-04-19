@@ -8,6 +8,8 @@ use alloc::{
 };
 use core::{fmt::Debug, ops::Range};
 
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 use basic::{
     arch::cpu_id,
     config::*,
@@ -39,8 +41,15 @@ use crate::{
     vfs_shim::{ShimFile, STDIN, STDOUT},
 };
 
-fn default_cpus_allowed() -> usize {
-    usize::MAX
+static TASK_CPU_BIND_NEXT: AtomicUsize = AtomicUsize::new(1);
+
+pub(super) fn round_robin_cpus_allowed() -> usize {
+    if CPU_NUM <= 1 {
+        return 0;
+    }
+
+    let cpu = TASK_CPU_BIND_NEXT.fetch_add(1, Ordering::Relaxed) % CPU_NUM;
+    1usize << cpu
 }
 
 #[derive(Debug)]
@@ -530,7 +539,7 @@ impl Task {
         let mut context = TaskContext::new_user(VirtAddr::from(0));
         task_arch::apply_user_state(&mut context, child_user_state);
         let task_basic_info = TaskBasicInfo::new(task.tid.raw(), context);
-        let inherited_cpus_allowed = default_cpus_allowed();
+        let inherited_cpus_allowed = round_robin_cpus_allowed();
         info!(
             "<do_clone> tid={}, inherited_cpus_allowed={:#x}",
             task.tid(),
