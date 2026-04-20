@@ -85,6 +85,10 @@ pub(crate) fn map_extra_user_regions(
     arch_map_extra_user_regions(address_space)
 }
 
+pub(crate) fn load_vdso() -> AlienResult<usize> {
+	arch_load_vdso()
+}
+
 #[cfg(target_arch = "x86_64")]
 pub(crate) fn set_current_user_fs_base(fs_base: usize) -> AlienResult<()> {
     arch_set_current_user_fs_base(fs_base)

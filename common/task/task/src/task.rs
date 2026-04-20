@@ -28,6 +28,7 @@ use memory_addr::{PhysAddr, VirtAddr};
 use page_table::MappingFlags;
 use pod::Pod;
 use ptable::{PhysPage, VmArea, VmAreaType, VmIo, VmSpace};
+use pconst::aux::AT_SYSINFO_EHDR;
 use small_index::IndexAllocator;
 use task_meta::{TaskBasicInfo, TaskMeta, TaskSchedulingInfo, TaskStatus};
 
@@ -45,7 +46,7 @@ static TASK_CPU_BIND_NEXT: AtomicUsize = AtomicUsize::new(1);
 
 pub(super) fn round_robin_cpus_allowed() -> usize {
     if CPU_NUM <= 1 {
-        return 0;
+        return 1 << 0;
     }
 
     let cpu = TASK_CPU_BIND_NEXT.fetch_add(1, Ordering::Relaxed) % CPU_NUM;
@@ -614,7 +615,7 @@ impl Task {
         envp: Vec<String>,
     ) -> AlienResult<()> {
         let elf_info = build_vm_space(elf_data, &mut argv, name)?;
-        let aux = AuxVec::from_elf_info(&elf_info)?;
+        let mut aux = AuxVec::from_elf_info(&elf_info)?;
         let mut inner = self.inner.lock();
         assert_eq!(inner.thread_number, 0);
         let address_space = elf_info.address_space;
@@ -625,6 +626,18 @@ impl Task {
             elf_info.heap_bottom.as_usize(),
             elf_info.heap_bottom.as_usize(),
         );
+        let vdso_base = match task_arch::load_vdso() {
+            Ok(base) if base != 0 => Some(base),
+            Ok(_) => None,
+            Err(err) => {
+                warn!("load vDSO failed: {:?}", err);
+                None
+            }
+        };
+        if let Some(base) = vdso_base {
+            // auxv 只负责把“用户可见的 vDSO ELF 基址”告诉进程；进程后续自己解析并调用。
+            aux.set(AT_SYSINFO_EHDR, base as u64)?;
+        }
         // set the name of the process
         inner.name = elf_info.name;
         // close file which contains FD_CLOEXEC flag

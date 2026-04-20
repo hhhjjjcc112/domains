@@ -151,3 +151,7 @@ pub(super) fn arch_map_extra_user_regions(
 ) -> AlienResult<()> {
     Ok(())
 }
+
+pub(super) fn arch_load_vdso() -> AlienResult<usize> {
+	Ok(0)
+}

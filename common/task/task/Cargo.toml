@@ -10,6 +10,9 @@ basic = { path = "../../../../domain-lib/basic", features = ["task"] }
 interface = { path = "../../../../domain-lib/interface" }
 shared_heap = { path = "../../../../domain-lib/shared_heap" }
 task_meta = { path = "../../../../domain-lib/task_meta" }
+vdso_api = { path = "../../../../build/vdso/vdso_api" }
+crate_interface = "0.2"
+pconst = { path = "../../../../utils/pconst" }
 
 small-index = { path = "../../../../utils/small-index" }
 vfscore = { path = "../../../../rvfs-ref/vfscore-ref", package = "vfscore-ref", features = ["linux_error"] }
