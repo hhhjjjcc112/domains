@@ -8,8 +8,6 @@ use alloc::{
 };
 use core::{fmt::Debug, ops::Range};
 
-use core::sync::atomic::{AtomicUsize, Ordering};
-
 use basic::{
     arch::cpu_id,
     config::*,
@@ -42,15 +40,8 @@ use crate::{
     vfs_shim::{ShimFile, STDIN, STDOUT},
 };
 
-static TASK_CPU_BIND_NEXT: AtomicUsize = AtomicUsize::new(1);
-
-pub(super) fn round_robin_cpus_allowed() -> usize {
-    if CPU_NUM <= 1 {
-        return 1 << 0;
-    }
-
-    let cpu = TASK_CPU_BIND_NEXT.fetch_add(1, Ordering::Relaxed) % CPU_NUM;
-    1usize << cpu
+pub fn cpus_allowed() -> usize {
+    usize::MAX
 }
 
 #[derive(Debug)]
@@ -409,21 +400,10 @@ impl Task {
         let trap_frame = task.trap_frame();
         *trap_frame = TrapFrame::new_user(elf_info.entry, user_sp, VirtAddr::from(k_stack_top));
         task_arch::apply_trap_tls(trap_frame, elf_info.tls);
-        println!(
-            "Task::from_elf success: name={}, tid={}, entry={:#x}, user_sp={:#x}, k_sp={:#x}, cpu_id={}, cpus_allowed={:#x}",
-            name,
-            task.tid(),
-            elf_info.entry.as_usize(),
-            user_sp.as_usize(),
-            k_stack_top,
-            cpu_id(),
-            cpus_allowed
-        );
         Some(task)
     }
 
     pub fn do_clone(self: &Arc<Self>, clone_args: CloneArgs) -> Option<Arc<Task>> {
-        info!("<do_clone> args: {:?}", clone_args);
         let tid = Arc::new(TidHandle::new()?);
         let address_space = if clone_args.flags.contains(CloneFlags::CLONE_VM) {
             // create thread
@@ -438,7 +418,6 @@ impl Task {
         // map the thread trap_context if clone_vm
         let thread_num = if clone_args.flags.contains(CloneFlags::CLONE_VM) {
             let thread_num = self.threads.lock().allocate().unwrap();
-            info!("thread_num: {}", thread_num);
             // calculate the address for thread context
             extend_thread_vm_space(&mut address_space.lock(), thread_num);
             thread_num
@@ -498,7 +477,6 @@ impl Task {
             Arc::new(Mutex::new(self.heap.lock().clone()))
         };
 
-        info!("create task pid:{:?}, tid:{:?}", pid, tid);
         let mut task = Task {
             tid: tid.clone(),
             kernel_stack: 0,
@@ -540,12 +518,7 @@ impl Task {
         let mut context = TaskContext::new_user(VirtAddr::from(0));
         task_arch::apply_user_state(&mut context, child_user_state);
         let task_basic_info = TaskBasicInfo::new(task.tid.raw(), context);
-        let inherited_cpus_allowed = round_robin_cpus_allowed();
-        info!(
-            "<do_clone> tid={}, inherited_cpus_allowed={:#x}",
-            task.tid(),
-            inherited_cpus_allowed
-        );
+        let inherited_cpus_allowed = cpus_allowed();
         let scheduling_info = TaskSchedulingInfo::new(task.tid.raw(), 0, inherited_cpus_allowed);
         let task_meta = TaskMeta::new(task_basic_info, scheduling_info);
 
@@ -554,35 +527,16 @@ impl Task {
         let trap_context = task.trap_frame();
         let old_trap_context = *self.trap_frame();
 
-        info!(
-            "<do_clone> parent_tid={}, child_tid={}, thread_num={}, k_stack_top={:#x}, parent_rip={:#x}, parent_rsp={:#x}, parent_rax={:#x}",
-            self.tid(),
-            task.tid(),
-            thread_num,
-            k_stack_top,
-            old_trap_context.rip,
-            old_trap_context.rsp,
-            old_trap_context.rax,
-        );
-
         *trap_context = old_trap_context;
         trap_context.update_result(0);
 
         // 设置内核栈地址
         trap_context.update_k_sp(VirtAddr::from(k_stack_top));
-        info!(
-            "<do_clone> child trap ready tid={}, user_rsp={:#x}, k_sp={:#x}",
-            task.tid(),
-            trap_context.rsp,
-            trap_context.kernel_sp().as_usize(),
-        );
-
         // 检查是否需要设置 tls
         if clone_args.flags.contains(CloneFlags::CLONE_SETTLS) {
             task_arch::apply_trap_tls(trap_context, clone_args.tls);
         }
 
-        trace!("write tid to parent arg: {:#x?}", clone_args.ptid);
         // 检查是否在父任务地址中写入 tid
         if clone_args.flags.contains(CloneFlags::CLONE_PARENT_SETTID) {
             task.write_val_to_user(VirtAddr::from(clone_args.ptid), &(tid.raw() as i32))
@@ -603,7 +557,6 @@ impl Task {
         if !clone_args.flags.contains(CloneFlags::CLONE_PARENT) {
             self.inner.lock().children.insert(task.pid(), task.clone());
         }
-        info!("create a task success");
         Some(task)
     }
 
@@ -645,13 +598,8 @@ impl Task {
         // reset signal handler
         inner.stack =
             elf_info.stack_top.as_usize() - USER_STACK_SIZE..elf_info.stack_top.as_usize();
-        info!("argv:{:?}, env:{:?}", argv, envp);
         let mut user_stack = UserStack::new(elf_info.stack_top, argv, envp, aux, name.to_string());
         let user_sp = user_stack.init(&mut self.address_space.lock())?;
-        info!(
-            "user_sp: {:#x}, kernel_sp: {:#x}",
-            user_sp, self.kernel_stack
-        );
         drop(inner);
         let trap_frame = self.trap_frame();
 

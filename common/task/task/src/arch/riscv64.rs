@@ -13,6 +13,7 @@ use basic::{
 use memory_addr::VirtAddr;
 use page_table::{MappingFlags, PagingError};
 use ptable::{PhysPage, VmArea, VmAreaType, VmIo, VmSpace};
+use xmas_elf::symbol_table::Entry;
 use vdso_api::{KernelMemIf, MappingFlags as VdsoMappingFlags, UserMemIf, VdsoLayout, VvarData};
 
 use super::UserArchState;
@@ -331,7 +332,7 @@ pub(super) fn arch_load_vdso() -> AlienResult<usize> {
 
 fn paging_err_to_alien(err: PagingError) -> AlienError {
     match err {
-        PagingError::Mapped => AlienError::EINVAL,
+        PagingError::NoMemory => AlienError::ENOMEM,
         _ => AlienError::EFAULT,
     }
 }

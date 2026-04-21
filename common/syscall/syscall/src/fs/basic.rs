@@ -1,4 +1,4 @@
-use alloc::{format, sync::Arc, vec, vec::Vec};
+use alloc::{sync::Arc, vec, vec::Vec};
 use core::cmp::min;
 
 use basic::{
@@ -19,10 +19,6 @@ use shared_heap::{DBox, DVec};
 use vfscore::utils::{VfsFileStat, VfsFsStat, VfsPollEvents};
 
 use crate::fs::user_path_at;
-
-fn stdout_prefix() -> DVec<u8> {
-    DVec::from_slice(format!("[user {}] ", basic::current_cpu_id()).as_bytes())
-}
 
 /// openat：`dirfd` 是基准目录，`path` 是用户态路径指针，`flags/mode` 是打开标志和创建权限。
 pub fn sys_openat(
@@ -89,17 +85,7 @@ pub fn sys_write(
     }
     let mut tmp_buf = DVec::<u8>::new_uninit(len);
     task_domain.copy_from_user(buf as usize, tmp_buf.as_mut_slice())?;
-    let w = if fd <= 2 {
-        let prefix = stdout_prefix();
-        let prefix_len = prefix.len();
-        let mut out = DVec::<u8>::new_uninit(prefix_len + len);
-        let out_slice = out.as_mut_slice();
-        out_slice[..prefix_len].copy_from_slice(prefix.as_slice());
-        out_slice[prefix_len..].copy_from_slice(&tmp_buf.as_slice()[..len]);
-        vfs.vfs_write(file, &out, out.len())
-    } else {
-        vfs.vfs_write(file, &tmp_buf, len)
-    };
+    let w = vfs.vfs_write(file, &tmp_buf, len);
     if let Err(err) = &w {
         if fd <= 2 {
             println_color!(
@@ -208,10 +194,7 @@ pub fn sys_writev(
             let mut tmp_buf = DVec::<u8>::new_uninit(len);
             task_domain.copy_from_user(base, tmp_buf.as_mut_slice())?;
             let out_buf = out_bytes.get_or_insert_with(|| {
-                let prefix = stdout_prefix();
-                let mut bytes = Vec::new();
-                bytes.extend_from_slice(prefix.as_slice());
-                bytes
+                Vec::new()
             });
             out_buf.extend_from_slice(&tmp_buf.as_slice()[..len]);
             count += len;
