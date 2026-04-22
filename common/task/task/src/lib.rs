@@ -13,6 +13,7 @@ mod processor;
 mod resource;
 mod syscall;
 mod task;
+mod vdso;
 mod utils;
 mod vfs_shim;
 

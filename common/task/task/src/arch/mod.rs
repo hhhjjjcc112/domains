@@ -35,9 +35,9 @@ mod riscv64;
 mod x86_64;
 
 #[cfg(target_arch = "riscv64")]
-pub(crate) use self::riscv64::*;
+use self::riscv64::*;
 #[cfg(target_arch = "x86_64")]
-pub(crate) use self::x86_64::*;
+use self::x86_64::*;
 
 pub(crate) fn initial_user_state(tls: usize) -> UserArchState {
     arch_initial_user_state(tls)
@@ -86,7 +86,7 @@ pub(crate) fn map_extra_user_regions(
 }
 
 pub(crate) fn load_vdso() -> AlienResult<usize> {
-	arch_load_vdso()
+    crate::vdso::load_vdso()
 }
 
 #[cfg(target_arch = "x86_64")]
