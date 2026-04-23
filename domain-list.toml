@@ -217,7 +217,8 @@ init_members_x86_64 = [
     "logger",
     "net_stack",
     "domainfs",
-    "mem_block"
+    "mem_block",
+    "loopback"
 ]
 
 disk_members_x86_64 = [
@@ -433,7 +434,8 @@ init_members_plat_qemu_x86_64 = [
     "logger",
     "net_stack",
     "domainfs",
-    "mem_block"
+    "mem_block",
+    "loopback"
 ]
 
 disk_members_plat_qemu_x86_64 = [
@@ -535,7 +537,8 @@ init_members_plat_qemu_x86_64_stage1 = [
     "procfs",
     "fifo_scheduler",
     "logger",
-    "domainfs"
+    "domainfs",
+    "loopback"
 ]
 
 disk_members_plat_qemu_x86_64_stage1 = []
