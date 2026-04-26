@@ -10,9 +10,8 @@ use basic::{
     vaddr_to_paddr_in_kernel,
     vm::frame::FrameTracker,
 };
-use memory_addr::VirtAddr;
-use page_table::{MappingFlags, PagingError};
-use ptable::{PhysPage, VmArea, VmAreaType, VmIo};
+use page_table::MappingFlags;
+use ptable::{PhysPage, VmArea, VmAreaType};
 use vdso_api::{MemIf, MappingFlags as VdsoMappingFlags, UserMemIf, VvarData};
 
 use crate::{
@@ -27,13 +26,6 @@ static VDSO_LOADED: Mutex<bool> = Mutex::new(false);
 
 fn page_align(size: usize) -> usize {
 	(size + FRAME_SIZE - 1) & !(FRAME_SIZE - 1)
-}
-
-fn paging_err_to_alien(err: PagingError) -> AlienError {
-    match err {
-        PagingError::NoMemory => AlienError::ENOMEM,
-        _ => AlienError::EFAULT,
-    }
 }
 
 struct KernelVdsoMem;
@@ -70,9 +62,9 @@ struct UserVdsoMem;
 
 #[crate_interface::impl_interface]
 impl UserMemIf for UserVdsoMem {
-    fn ualloc(vspace: usize, size: usize) -> *mut u8 {
+    fn ualloc(_vspace: usize, size: usize) -> *mut u8 {
         let task = current_task().unwrap();
-        assert_eq!(vspace, task.token());
+
         assert_eq!(size % FRAME_SIZE, 0);
         let mut mmap = task.mmap.lock();
         let v_range = mmap.alloc(size);
@@ -91,9 +83,9 @@ impl UserMemIf for UserVdsoMem {
         v_range.start as *mut u8
     }
 
-    fn map(vspace: usize, user_addr: *mut u8, kaddr: *mut u8, len: usize, flags: VdsoMappingFlags) {
+    fn map(_vspace: usize, user_addr: *mut u8, kaddr: *mut u8, len: usize, flags: VdsoMappingFlags) {
         let task = current_task().unwrap();
-        assert_eq!(vspace, task.token());
+
         let len = page_align(len);
         let page_count = len / FRAME_SIZE;
         let mut phy_frames: Vec<Box<dyn PhysPage>> = Vec::with_capacity(page_count);
@@ -128,43 +120,49 @@ fn ensure_loaded() {
     let mut loaded = VDSO_LOADED.lock();
     if !*loaded {
         vdso_api::load_and_init();
+        refresh_vvar_snapshot();
         *loaded = true;
     }
 }
 
-pub(crate) fn load_vdso() -> AlienResult<usize> {
-    ensure_loaded();
+fn refresh_vvar_snapshot() {
+    let shared_frame = VDSO_SHARED_FRAME.lock();
+    let Some(shared_frame) = shared_frame.as_ref() else {
+        return;
+    };
 
-    let task = current_task().unwrap();
-    let vspace = task.token();
-    let regions = vdso_api::map_and_init(vspace);
-    let user_vvar_base = regions
-        .get(0)
-        .map(|region| region.0 as usize)
-        .ok_or(AlienError::EINVAL)?;
-    let user_vdso_base = regions
-        .get(1)
-        .map(|region| region.0 as usize)
-        .ok_or(AlienError::EINVAL)?;
-
-    // 把共享快照写回 vVAR 区域，让用户态时间读取能直接命中 vDSO 数据页。
-    let mut address_space = task.address_space.lock();
     let seq_off = offset_of!(VvarData, seq);
     let realtime_off = offset_of!(VvarData, realtime_ns);
     let monotonic_off = offset_of!(VvarData, monotonic_ns);
     let realtime = time::wall_time_nanos() as usize;
     let monotonic = time::monotonic_time_nanos() as usize;
 
-	// 先写共享快照，再把 seq 复位为 0，表示用户态可以安全读取这组时间值了。
-    address_space
-        .write_value_atomic(VirtAddr::from(user_vvar_base + realtime_off), realtime)
-        .map_err(paging_err_to_alien)?;
-    address_space
-        .write_value_atomic(VirtAddr::from(user_vvar_base + monotonic_off), monotonic)
-        .map_err(paging_err_to_alien)?;
-    address_space
-        .write_value_atomic(VirtAddr::from(user_vvar_base + seq_off), 0)
-        .map_err(paging_err_to_alien)?;
+    let mut seq = shared_frame.read_value_atomic(seq_off);
+    if seq & 1 != 0 {
+        seq = seq.wrapping_add(1);
+    }
+
+    let writing_seq = seq.wrapping_add(1);
+    let stable_seq = writing_seq.wrapping_add(1);
+
+    shared_frame.write_value_atomic(seq_off, writing_seq);
+    shared_frame.write_value_atomic(realtime_off, realtime);
+    shared_frame.write_value_atomic(monotonic_off, monotonic);
+    shared_frame.write_value_atomic(seq_off, stable_seq);
+}
+
+pub(crate) fn update_time_snapshot() {
+    refresh_vvar_snapshot();
+}
+
+pub(crate) fn load_vdso() -> AlienResult<usize> {
+    ensure_loaded();
+
+    let regions = vdso_api::map_and_init(0);
+    let user_vdso_base = regions
+        .get(1)
+        .map(|region| region.0 as usize)
+        .ok_or(AlienError::EINVAL)?;
 
     Ok(user_vdso_base)
 }

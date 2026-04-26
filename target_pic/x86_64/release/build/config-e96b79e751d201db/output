@@ -1,5 +1,0 @@
-cargo::rustc-check-cfg=cfg(plat_qemu_riscv)
-cargo::rustc-check-cfg=cfg(plat_qemu_x86_64)
-cargo::rustc-check-cfg=cfg(plat_vf2)
-cargo:rerun-if-changed=src/lib.rs
-cargo::rustc-cfg=plat_qemu_x86_64

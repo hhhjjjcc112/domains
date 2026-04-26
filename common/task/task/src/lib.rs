@@ -388,6 +388,11 @@ impl TaskDomain for TaskDomainImpl {
     ) -> AlienResult<isize> {
         syscall::futex::futex(uaddr, futex_op, val, timeout, uaddr2, val3)
     }
+
+    fn vdso_update_time_snapshot(&self) -> AlienResult<()> {
+        vdso::update_time_snapshot();
+        Ok(())
+    }
 }
 define_unwind_for_TaskDomain!(TaskDomainImpl);
 pub fn main() -> Box<dyn TaskDomain> {
