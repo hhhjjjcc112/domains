@@ -182,7 +182,8 @@ impl Basic for GPUDomain {
 
 impl DeviceBase for GPUDomain {
     fn handle_irq(&self) -> AlienResult<()> {
-        unimplemented!()
+        self.gpu.get_must().lock().ack_interrupt().unwrap();
+        Ok(())
     }
 }
 
