@@ -1,0 +1,17 @@
+[package]
+name = "glocal_apic"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+malloc = { path = "../../../../domain-lib/malloc" }
+corelib = { path = "../../../../domain-lib/corelib" }
+basic = { path = "../../../../domain-lib/basic" }
+shared_heap = { path = "../../../../domain-lib/shared_heap" }
+interface = { path = "../../../../domain-lib/interface", features = ["domain"] }
+storage = { path = "../../../../domain-lib/storage", features = ["impl"] }
+local_apic = { path = "../local_apic" }
+
+[features]
+default = ["rust-unwind"]
+rust-unwind = []

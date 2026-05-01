@@ -10,7 +10,7 @@ use basic::{
     vaddr_to_paddr_in_kernel,
     vm::frame::FrameTracker,
 };
-use page_table::MappingFlags;
+use page_table::{MappingFlags, PagingError};
 use ptable::{PhysPage, VmArea, VmAreaType};
 use vdso_api::{MemIf, MappingFlags as VdsoMappingFlags, UserMemIf, VvarData};
 
@@ -24,8 +24,11 @@ static VDSO_SHARED_FRAME: Mutex<Option<Arc<FrameTracker>>> = Mutex::new(None);
 static VDSO_PRIVATE_FRAMES: Mutex<Vec<Arc<FrameTracker>>> = Mutex::new(Vec::new());
 static VDSO_LOADED: Mutex<bool> = Mutex::new(false);
 
-fn page_align(size: usize) -> usize {
-	(size + FRAME_SIZE - 1) & !(FRAME_SIZE - 1)
+fn paging_err_to_alien(err: PagingError) -> AlienError {
+    match err {
+        PagingError::NoMemory => AlienError::ENOMEM,
+        _ => AlienError::EFAULT,
+    }
 }
 
 struct KernelVdsoMem;
@@ -62,8 +65,9 @@ struct UserVdsoMem;
 
 #[crate_interface::impl_interface]
 impl UserMemIf for UserVdsoMem {
-    fn ualloc(_vspace: usize, size: usize) -> *mut u8 {
+    fn ualloc(vspace: usize, size: usize) -> *mut u8 {
         let task = current_task().unwrap();
+        assert_eq!(vspace, 0);
 
         assert_eq!(size % FRAME_SIZE, 0);
         let mut mmap = task.mmap.lock();
@@ -83,10 +87,10 @@ impl UserMemIf for UserVdsoMem {
         v_range.start as *mut u8
     }
 
-    fn map(_vspace: usize, user_addr: *mut u8, kaddr: *mut u8, len: usize, flags: VdsoMappingFlags) {
+    fn map(vspace: usize, user_addr: *mut u8, kaddr: *mut u8, len: usize, flags: VdsoMappingFlags) {
         let task = current_task().unwrap();
-
-        let len = page_align(len);
+        assert_eq!(vspace, 0);
+        assert_eq!(len % FRAME_SIZE, 0);
         let page_count = len / FRAME_SIZE;
         let mut phy_frames: Vec<Box<dyn PhysPage>> = Vec::with_capacity(page_count);
 
@@ -113,15 +117,6 @@ impl UserMemIf for UserVdsoMem {
             .lock()
             .map(VmAreaType::VmArea(area))
             .unwrap();
-    }
-}
-
-fn ensure_loaded() {
-    let mut loaded = VDSO_LOADED.lock();
-    if !*loaded {
-        vdso_api::load_and_init();
-        refresh_vvar_snapshot();
-        *loaded = true;
     }
 }
 
@@ -153,6 +148,15 @@ fn refresh_vvar_snapshot() {
 
 pub(crate) fn update_time_snapshot() {
     refresh_vvar_snapshot();
+}
+
+fn ensure_loaded() {
+    let mut loaded = VDSO_LOADED.lock();
+    if !*loaded {
+        vdso_api::load_and_init();
+        refresh_vvar_snapshot();
+        *loaded = true;
+    }
 }
 
 pub(crate) fn load_vdso() -> AlienResult<usize> {

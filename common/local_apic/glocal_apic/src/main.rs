@@ -9,7 +9,7 @@ use core::panic::PanicInfo;
 
 use basic::domain_main;
 use corelib::CoreFunction;
-use interface::APICDomain;
+use interface::LocalAPICDomain;
 use shared_heap::SharedHeapAlloc;
 use storage::StorageArg;
 
@@ -19,7 +19,7 @@ fn main(
     domain_id: u64,
     shared_heap: &'static dyn SharedHeapAlloc,
     storage_arg: StorageArg,
-) -> Box<dyn APICDomain> {
+) -> Box<dyn LocalAPICDomain> {
     corelib::init(sys);
     shared_heap::init(shared_heap, domain_id);
     basic::logging::init_logger();
@@ -30,6 +30,6 @@ fn main(
     domain_entry()
 }
 
-fn domain_entry() -> Box<dyn APICDomain> {
-    apic::main()
+fn domain_entry() -> Box<dyn LocalAPICDomain> {
+    local_apic::main()
 }

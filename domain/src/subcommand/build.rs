@@ -58,16 +58,20 @@ fn get_target_config() -> (&'static str, &'static str) {
     }
 }
 
-fn check_output_exist(output: &String) {
+fn prepare_output_dirs(output: &String) {
     let disk_path = format!("{}/disk", output);
     let init_path = format!("{}/init", output);
     let disk_dir = Path::new(disk_path.as_str());
     let init_dir = Path::new(init_path.as_str());
-    if !disk_dir.exists() || !init_dir.exists() {
-        println!("Output directory not exist, creating...");
-        fs::create_dir_all(&format!("{}/disk", output)).unwrap();
-        fs::create_dir_all(&format!("{}/init", output)).unwrap();
+    if disk_dir.exists() {
+        fs::remove_dir_all(disk_dir).unwrap();
     }
+    if init_dir.exists() {
+        fs::remove_dir_all(init_dir).unwrap();
+    }
+    println!("Prepare output directory, recreating init/disk...");
+    fs::create_dir_all(&format!("{}/disk", output)).unwrap();
+    fs::create_dir_all(&format!("{}/init", output)).unwrap();
 }
 
 fn gen_domain_linker_script(target_dir: &str) -> PathBuf {
@@ -100,7 +104,7 @@ fn gen_domain_linker_script(target_dir: &str) -> PathBuf {
 }
 
 pub fn build_single(name: &str, log: &str, output: &String) {
-    check_output_exist(output);
+    prepare_output_dirs(output);
     let domain_list = fs::read_to_string("./domain-list.toml").unwrap();
     let config: Config = toml::from_str(&domain_list).unwrap();
     let all_members = pick_domain_list(&config, "members");
@@ -186,7 +190,7 @@ pub fn build_domain(name: &str, log: String, dir: &str, output: &String) {
 }
 
 pub fn build_all(log: String, output: &String) {
-    check_output_exist(output);
+    prepare_output_dirs(output);
     let domain_list = fs::read_to_string("./domain-list.toml").unwrap();
     let config: Config = toml::from_str(&domain_list).unwrap();
     println!("Start building all domains");

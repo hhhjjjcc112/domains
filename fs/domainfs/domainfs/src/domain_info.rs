@@ -179,7 +179,9 @@ fn domain_type_from_str(name: &str) -> Option<DomainTypeRaw> {
         "BufInputDomain" => Some(DomainTypeRaw::BufInputDomain),
         "EmptyDeviceDomain" => Some(DomainTypeRaw::EmptyDeviceDomain),
         #[cfg(target_arch = "x86_64")]
-        "APICDomain" => Some(DomainTypeRaw::APICDomain),
+        "LocalAPICDomain" => Some(DomainTypeRaw::LocalAPICDomain),
+        #[cfg(target_arch = "x86_64")]
+        "IoAPICDomain" => Some(DomainTypeRaw::IoAPICDomain),
         "DevFsDomain" => Some(DomainTypeRaw::DevFsDomain),
         "SchedulerDomain" => Some(DomainTypeRaw::SchedulerDomain),
         "LogDomain" => Some(DomainTypeRaw::LogDomain),

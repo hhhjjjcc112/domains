@@ -11,8 +11,10 @@ vfs_common = { path = "../domains/common_lib/vfs_common" }
 virtio_mmio_common = { path = "../domains/common_lib/virtio_mmio_common" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
-apic = { path = "../domains/common/apic/apic" }
-gapic = { path = "../domains/common/apic/gapic" }
+local_apic = { path = "../domains/common/local_apic/local_apic" }
+glocal_apic = { path = "../domains/common/local_apic/glocal_apic" }
+io_apic = { path = "../domains/common/io_apic/io_apic" }
+gio_apic = { path = "../domains/common/io_apic/gio_apic" }
 fifo_scheduler = { path = "../domains/common/fifo_scheduler/fifo_scheduler" }
 gfifo_scheduler = { path = "../domains/common/fifo_scheduler/gfifo_scheduler" }
 glogger = { path = "../domains/common/logger/glogger" }
