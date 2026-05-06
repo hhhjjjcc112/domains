@@ -10,8 +10,79 @@ use basic::{
 use memory_addr::{align_down_4k, align_up_4k};
 use page_table::MappingFlags;
 use ptable::{PhysPage, VmArea, VmAreaType};
+use shared_heap::DVec;
 
 use crate::{elf::FrameTrackerWrapper, processor::current_task, resource::MMapRegion};
+
+pub fn vdso_reserve_user_vaddr(len: usize, prot: u32, flags: u32) -> AlienResult<usize> {
+    let prot = ProtFlags::from_bits_truncate(prot as _);
+    let flags = MMapFlags::from_bits_truncate(flags);
+    let len = align_up_4k(len);
+    if len == 0 {
+        return Err(AlienError::EINVAL);
+    }
+
+    let task = current_task().unwrap();
+    let mut mmap = task.mmap.lock();
+    let v_range = mmap.alloc(len);
+    let region = MMapRegion::new(v_range.start, len, len, prot, flags, None, 0);
+    mmap.add_region(region);
+    Ok(v_range.start)
+}
+
+pub fn vdso_map_user_pages(
+    vaddr: usize,
+    len: usize,
+    prot: u32,
+    page_descs: DVec<(usize,bool)>,
+) -> AlienResult<()> {
+    let len = align_up_4k(len);
+    if len == 0 || len % FRAME_SIZE != 0 {
+        return Err(AlienError::EINVAL);
+    }
+    if page_descs.len() != len / FRAME_SIZE {
+        return Err(AlienError::EINVAL);
+    }
+
+    let prot = ProtFlags::from_bits_truncate(prot as _);
+    let map_flags = from_prot(prot);
+    let task = current_task().unwrap();
+
+    {
+        let mut mmap = task.mmap.lock();
+        let region = mmap.get_region_mut(vaddr).ok_or(AlienError::EINVAL)?;
+        if vaddr + len > region.start + region.map_len {
+            return Err(AlienError::EINVAL);
+        }
+        region.set_prot(prot);
+    }
+
+    let mut phy_frames = vec![];
+    // 遍历 (paddr, transfer_flag) 对
+    for (paddr, transfer_flag) in page_descs.as_slice() {
+        if paddr % FRAME_SIZE != 0 {
+            return Err(AlienError::EINVAL);
+        }
+        
+        if *transfer_flag {
+            // 标记为 transfer=true：使用 owning FrameTracker，task 负责释放
+            let frame = FrameTracker::from_phy_range_owned(*paddr..(*paddr + FRAME_SIZE));
+            phy_frames.push(Box::new(FrameTrackerWrapper(frame)) as Box<dyn PhysPage>);
+        } else {
+            // 标记为 transfer=false：使用代理 FrameTracker，kernel 保留所有权
+            let frame = FrameTracker::from_phy_range(*paddr..(*paddr + FRAME_SIZE));
+            phy_frames.push(Box::new(FrameTrackerWrapper(frame)) as Box<dyn PhysPage>);
+        }
+    }
+
+    let area = VmArea::new(vaddr..vaddr + len, map_flags, phy_frames);
+    task.address_space
+        .lock()
+        .map(VmAreaType::VmArea(area))
+        .map_err(|_| AlienError::EINVAL)?;
+
+    Ok(())
+}
 
 pub fn do_mmap_device(phy_addr_range: Range<usize>) -> AlienResult<isize> {
     let prot = ProtFlags::PROT_READ | ProtFlags::PROT_WRITE;

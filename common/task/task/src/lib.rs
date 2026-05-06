@@ -174,6 +174,12 @@ impl TaskDomain for TaskDomainImpl {
         let task = current_task().unwrap();
         Ok(task.pgid())
     }
+    fn vaddr_to_paddr(&self, vaddr: usize) -> AlienResult<usize> {
+        let task = current_task().ok_or(AlienError::EINVAL)?;
+        // address_space.query 返回 (PhysAddr, MappingFlags, PageSize)
+        let (phy, _, _) = task.address_space.lock().query(vaddr).map_err(|_| AlienError::EINVAL)?;
+        Ok(phy.as_usize())
+    }
 
     fn current_sid(&self) -> AlienResult<usize> {
         let task = current_task().unwrap();
@@ -377,6 +383,18 @@ impl TaskDomain for TaskDomainImpl {
     fn do_load_page_fault(&self, addr: usize) -> AlienResult<()> {
         syscall::mmap::do_load_page_fault(addr)
     }
+    fn vdso_reserve_user_vaddr(&self, len: usize, prot: u32, flags: u32) -> AlienResult<usize> {
+        syscall::mmap::vdso_reserve_user_vaddr(len, prot, flags)
+    }
+    fn vdso_map_user_pages(
+        &self,
+        vaddr: usize,
+        len: usize,
+        prot: u32,
+        page_descs: DVec<(usize,bool)>,
+    ) -> AlienResult<()> {
+        syscall::mmap::vdso_map_user_pages(vaddr, len, prot, page_descs)
+    }
     fn do_futex(
         &self,
         uaddr: usize,
@@ -387,11 +405,6 @@ impl TaskDomain for TaskDomainImpl {
         val3: u32,
     ) -> AlienResult<isize> {
         syscall::futex::futex(uaddr, futex_op, val, timeout, uaddr2, val3)
-    }
-
-    fn vdso_update_time_snapshot(&self) -> AlienResult<()> {
-        vdso::update_time_snapshot();
-        Ok(())
     }
 }
 define_unwind_for_TaskDomain!(TaskDomainImpl);

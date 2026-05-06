@@ -579,7 +579,7 @@ impl Task {
             elf_info.heap_bottom.as_usize(),
             elf_info.heap_bottom.as_usize(),
         );
-        let vdso_base = match task_arch::load_vdso() {
+        let vdso_base = match super::vdso::load_vdso() {
             Ok(base) if base != 0 => Some(base),
             Ok(_) => None,
             Err(err) => {
