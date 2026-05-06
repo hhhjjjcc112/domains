@@ -1,5 +1,5 @@
 [package]
-name = "virtio_mmio_common"
+name = "virtio_common"
 version = "0.1.0"
 edition = "2024"
 
@@ -8,6 +8,7 @@ edition = "2024"
 [dependencies]
 basic = { path = "../../../domain-lib/basic" }
 shared_heap = { path = "../../../domain-lib/shared_heap" }
+interface = { path = "../../../domain-lib/interface" }
 virtio-drivers = { path = "../../../utils/safe-virtio-drivers/virtio-drivers" }
 
 log = "0"

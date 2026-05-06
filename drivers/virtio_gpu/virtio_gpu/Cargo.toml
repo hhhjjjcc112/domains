@@ -11,5 +11,5 @@ shared_heap = { path = "../../../../domain-lib/shared_heap" }
 basic = { path = "../../../../domain-lib/basic" }
 
 virtio-drivers = { path = "../../../../utils/safe-virtio-drivers/virtio-drivers" } # safe crate
-virtio_mmio_common = { path = "../../../common_lib/virtio_mmio_common" }
+virtio_common = { path = "../../../common_lib/virtio_common" }
 log = "0"

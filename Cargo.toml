@@ -8,7 +8,7 @@ common_scheduler = { path = "../domains/common_lib/common_scheduler" }
 domain = { path = "../domains/domain" }
 generic = { path = "../domains/common_lib/generic" }
 vfs_common = { path = "../domains/common_lib/vfs_common" }
-virtio_mmio_common = { path = "../domains/common_lib/virtio_mmio_common" }
+virtio_common = { path = "../domains/common_lib/virtio_common" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 local_apic = { path = "../domains/common/local_apic/local_apic" }

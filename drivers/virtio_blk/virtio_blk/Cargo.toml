@@ -10,7 +10,7 @@ interface = { path = "../../../../domain-lib/interface" }
 shared_heap = { path = "../../../../domain-lib/shared_heap" }
 basic = { path = "../../../../domain-lib/basic" }
 
-virtio_mmio_common = { path = "../../../common_lib/virtio_mmio_common" }
+virtio_common = { path = "../../../common_lib/virtio_common" }
 virtio-drivers = { path = "../../../../utils/safe-virtio-drivers/virtio-drivers" }
 log = "0"
 
