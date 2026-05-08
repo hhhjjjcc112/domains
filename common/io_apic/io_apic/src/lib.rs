@@ -1,4 +1,5 @@
 #![no_std]
+#![forbid(unsafe_code)]
 
 #[cfg(not(target_arch = "x86_64"))]
 compile_error!("io_apic domain 仅支持 x86_64");
@@ -15,25 +16,13 @@ use alloc::{
 use core::{
     cmp::min,
     fmt::{Debug, Formatter},
-    mem::MaybeUninit,
-    sync::atomic::{AtomicBool, Ordering},
 };
 
 use basic::sync::Mutex;
-use basic::{println, AlienResult};
+use basic::{println, AlienError, AlienResult};
 use interface::{define_unwind_for_IoAPICDomain, Basic, DeviceBase, IoAPICDomain, IoAPICHooks};
 use shared_heap::DVec;
-use x2apic::ioapic::{IrqFlags, IrqMode, IoApic};
-
-static mut IO_APIC: MaybeUninit<IoApic> = MaybeUninit::uninit();
-static IO_APIC_READY: AtomicBool = AtomicBool::new(false);
-
-unsafe fn get_io_apic() -> &'static mut IoApic {
-    #[allow(static_mut_refs)]
-    unsafe {
-        IO_APIC.assume_init_mut()
-    }
-}
+use x86_apic::IoApicContext;
 
 enum DeviceDomain {
     Name(String),
@@ -49,15 +38,22 @@ impl Debug for DeviceDomain {
     }
 }
 
-#[derive(Debug)]
 pub struct IoAPICDomainImpl {
+    apic: Mutex<Option<IoApicContext>>,
     table: Mutex<BTreeMap<usize, DeviceDomain>>,
     count: Mutex<BTreeMap<usize, usize>>,
+}
+
+impl Debug for IoAPICDomainImpl {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.write_str("IoAPICDomainImpl")
+    }
 }
 
 impl Default for IoAPICDomainImpl {
     fn default() -> Self {
         Self {
+            apic: Mutex::new(None),
             table: Mutex::new(BTreeMap::new()),
             count: Mutex::new(BTreeMap::new()),
         }
@@ -73,13 +69,10 @@ impl Basic for IoAPICDomainImpl {
 impl IoAPICDomain for IoAPICDomainImpl {
     fn init(&self, hooks: &IoAPICHooks) -> AlienResult<()> {
         println!("IO APIC domain init enter base={:#x}", hooks.ioapic_base);
-        if !IO_APIC_READY.load(Ordering::Acquire) {
-            let io_apic = unsafe { IoApic::new(hooks.ioapic_base as u64) };
-            unsafe {
-                #[allow(static_mut_refs)]
-                IO_APIC.write(io_apic);
-            }
-            IO_APIC_READY.store(true, Ordering::Release);
+        if self.apic.lock().is_none() {
+            let io_apic = IoApicContext::new(hooks.ioapic_base)
+                .map_err(|_| AlienError::EINVAL)?;
+            *self.apic.lock() = Some(io_apic);
         }
         println!("IO APIC domain init");
         Ok(())
@@ -91,44 +84,42 @@ impl IoAPICDomain for IoAPICDomainImpl {
             irq,
             vector,
             dest_cpu,
-            IO_APIC_READY.load(Ordering::Acquire)
+            self.apic.lock().is_some()
         );
-        if IO_APIC_READY.load(Ordering::Acquire) {
-            unsafe {
-                let io_apic = get_io_apic();
-                let mut entry = io_apic.table_entry(irq);
-                println!("IO APIC configure irq table_entry ok irq={}", irq);
-                entry.set_vector(vector);
-                entry.set_dest(dest_cpu);
-                entry.set_mode(IrqMode::Fixed);
-                entry.set_flags(
-                    IrqFlags::LEVEL_TRIGGERED | IrqFlags::LOW_ACTIVE | IrqFlags::MASKED,
-                );
-                println!("IO APIC configure irq writing entry irq={}", irq);
-                io_apic.set_table_entry(irq, entry);
-                println!("IO APIC configure irq write ok irq={}", irq);
-            }
-        }
+        let mut guard = self.apic.lock();
+        let Some(io_apic) = guard.as_mut() else {
+            return Err(AlienError::EINVAL);
+        };
+
+        io_apic
+            .configure_irq(irq, vector, dest_cpu)
+            .map_err(|_| AlienError::EINVAL)?;
         Ok(())
     }
 
     fn set_irq_enable(&self, vector: usize, enabled: bool) -> AlienResult<()> {
-        if vector < 0xf0 && IO_APIC_READY.load(Ordering::Acquire) {
-            unsafe {
-                let io_apic = get_io_apic();
-                if enabled {
-                    io_apic.enable_irq(vector as u8);
-                } else {
-                    io_apic.disable_irq(vector as u8);
-                }
+        if vector < 0xf0 {
+            let mut guard = self.apic.lock();
+            let Some(io_apic) = guard.as_mut() else {
+                return Err(AlienError::EINVAL);
+            };
+            if enabled {
+                io_apic
+                    .enable_irq(vector as u8)
+                    .map_err(|_| AlienError::EINVAL)?;
+            } else {
+                io_apic
+                    .disable_irq(vector as u8)
+                    .map_err(|_| AlienError::EINVAL)?;
             }
         }
         Ok(())
     }
 
     fn ioapic_max_entries(&self) -> AlienResult<u8> {
-        if IO_APIC_READY.load(Ordering::Acquire) {
-            Ok(unsafe { get_io_apic().max_table_entry() + 1 })
+        let mut guard = self.apic.lock();
+        if let Some(io_apic) = guard.as_mut() {
+            Ok(io_apic.max_table_entry().map_err(|_| AlienError::EINVAL)? + 1)
         } else {
             Ok(0)
         }

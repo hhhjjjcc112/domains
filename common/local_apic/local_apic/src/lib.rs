@@ -1,4 +1,5 @@
 #![no_std]
+#![forbid(unsafe_code)]
 
 #[cfg(not(target_arch = "x86_64"))]
 compile_error!("local_apic domain 仅支持 x86_64");
@@ -6,34 +7,34 @@ compile_error!("local_apic domain 仅支持 x86_64");
 extern crate alloc;
 
 use alloc::boxed::Box;
-use core::{
-    mem::MaybeUninit,
-    sync::atomic::{AtomicBool, AtomicU64, Ordering},
-    time::Duration,
-};
+use core::{fmt, sync::atomic::{AtomicU64, Ordering}, time::Duration};
 
-use basic::sync::Once;
-use basic::{println, AlienError, AlienResult};
+use basic::sync::Mutex;
+use basic::{AlienError, AlienResult};
 use basic::time::{busy_wait, current_ticks, ticks_to_nanos};
 use interface::{
     define_unwind_for_LocalAPICDomain, Basic, LocalAPICDomain, LocalAPICHooks,
 };
 use raw_cpuid::CpuId;
-use x2apic::lapic::{IpiAllShorthand, LocalApic, LocalApicBuilder, TimerDivide, TimerMode};
+use x86_apic::LocalApicContext;
 
-static mut LOCAL_APIC: MaybeUninit<LocalApic> = MaybeUninit::uninit();
-static LOCAL_APIC_READY: AtomicBool = AtomicBool::new(false);
-static IS_X2APIC: AtomicBool = AtomicBool::new(false);
 static APIC_TIMER_FREQUENCY: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Debug)]
 pub struct LocalAPICDomainImpl {
-    hooks: Once<LocalAPICHooks>,
+    apic: Mutex<Option<LocalApicContext>>,
+}
+
+impl fmt::Debug for LocalAPICDomainImpl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("LocalAPICDomainImpl")
+    }
 }
 
 impl Default for LocalAPICDomainImpl {
     fn default() -> Self {
-        Self { hooks: Once::new() }
+        Self {
+            apic: Mutex::new(None),
+        }
     }
 }
 
@@ -49,134 +50,52 @@ fn cpu_has_x2apic() -> bool {
         .map_or(false, |finfo| finfo.has_x2apic())
 }
 
-unsafe fn get_local_apic() -> &'static mut LocalApic {
-    #[allow(static_mut_refs)]
-    unsafe {
-        LOCAL_APIC.assume_init_mut()
-    }
-}
-
-fn local_apic() -> AlienResult<&'static mut LocalApic> {
-    if LOCAL_APIC_READY.load(Ordering::Acquire) {
-        Ok(unsafe { get_local_apic() })
-    } else {
-        Err(AlienError::EINVAL)
-    }
-}
-
 fn raw_apic_id(cpu_id: u8) -> u32 {
-    if IS_X2APIC.load(Ordering::Acquire) {
+    if cpu_has_x2apic() {
         cpu_id as u32
     } else {
         (cpu_id as u32) << 24
     }
 }
 
-fn build_local_apic(xapic_base: usize) -> LocalApic {
-    let is_x2apic = cpu_has_x2apic();
-    IS_X2APIC.store(is_x2apic, Ordering::Release);
-
-    let mut builder = LocalApicBuilder::new();
-    builder
-        .spurious_vector(0xf1)
-        .timer_vector(0xf0)
-        .error_vector(0xf2)
-        .timer_mode(TimerMode::OneShot)
-        .timer_divide(TimerDivide::Div1)
-        .timer_initial(u32::MAX);
-
-    if !is_x2apic {
-        builder.set_xapic_base(xapic_base as u64);
-    }
-
-    builder
-        .build()
-        .expect("local_apic domain failed to build LocalApic")
+fn program_oneshot_timer(local_apic: &mut LocalApicContext) -> AlienResult<()> {
+    local_apic.configure_oneshot_timer().map_err(|_| AlienError::EINVAL)
 }
 
-fn program_oneshot_timer(local_apic: &mut LocalApic) {
-    unsafe {
-        local_apic.set_timer_divide(TimerDivide::Div1);
-        local_apic.set_timer_mode(TimerMode::OneShot);
-        local_apic.enable_timer();
-    }
-}
-
-/// 读取 Local APIC 错误状态寄存器（ESR）。
-/// 在 xAPIC 模式下通过内存映射读取 offset 0x280；在 x2APIC 模式下通过 MSR 0x80B 读取。
-fn read_apic_error_status(is_x2apic: bool, xapic_base: usize) -> u32 {
-    if is_x2apic {
-        // x2APIC 模式：MSR 0x80B
-        let mut eax: u32;
-        unsafe {
-            core::arch::asm!(
-                "rdmsr",
-                in("ecx") 0x80B_u32,
-                out("eax") eax,
-                options(preserves_flags)
-            );
-        }
-        eax
-    } else {
-        // xAPIC 模式：内存映射 offset 0x280
-        unsafe {
-            let esr_addr = (xapic_base as *const u32).add(0x280 / 4);
-            core::ptr::read_volatile(esr_addr)
-        }
-    }
-}
-
-fn calibrate_apic_timer(local_apic: &mut LocalApic) -> u64 {
-    // println!("[local_apic] calibrate_apic_timer enter");
-    program_oneshot_timer(local_apic);
-    unsafe {
-        local_apic.set_timer_initial(u32::MAX);
-    }
+fn calibrate_apic_timer(local_apic: &mut LocalApicContext) -> AlienResult<u64> {
+    program_oneshot_timer(local_apic)?;
+    local_apic.set_timer_initial(u32::MAX).map_err(|_| AlienError::EINVAL)?;
 
     busy_wait(Duration::from_millis(10));
 
-    let remaining = unsafe { local_apic.timer_current() };
+    let remaining = local_apic.timer_current().map_err(|_| AlienError::EINVAL)?;
     let elapsed = u32::MAX.saturating_sub(remaining);
     let frequency = ((elapsed as u64) * 100).max(1);
     APIC_TIMER_FREQUENCY.store(frequency, Ordering::SeqCst);
 
-    unsafe {
-        local_apic.set_timer_initial(0);
-    }
+    local_apic.set_timer_initial(0).map_err(|_| AlienError::EINVAL)?;
+    Ok(frequency)
+}
 
-    // println!(
-    //     "[local_apic] calibrate_apic_timer ready elapsed={} frequency={}",
-    //     elapsed,
-    //     frequency
-    // );
-    frequency
+fn with_apic<R>(apic: &Mutex<Option<LocalApicContext>>, f: impl FnOnce(&mut LocalApicContext) -> AlienResult<R>) -> AlienResult<R> {
+    let mut guard = apic.lock();
+    let Some(ctx) = guard.as_mut() else {
+        return Err(AlienError::EINVAL);
+    };
+    f(ctx)
 }
 
 impl LocalAPICDomain for LocalAPICDomainImpl {
     fn init(&self, hooks: &LocalAPICHooks) -> AlienResult<()> {
-        // println!(
-        //     "[local_apic] init enter xapic_base={:#x} ready={} x2apic={}",
-        //     hooks.xapic_base,
-        //     LOCAL_APIC_READY.load(Ordering::Acquire),
-        //     cpu_has_x2apic()
-        // );
-        self.hooks.call_once(|| *hooks);
-        if !LOCAL_APIC_READY.load(Ordering::Acquire) {
-            let mut local_apic = build_local_apic(hooks.xapic_base);
-            let frequency = calibrate_apic_timer(&mut local_apic);
-            program_oneshot_timer(&mut local_apic);
-            unsafe {
-                #[allow(static_mut_refs)]
-                LOCAL_APIC.write(local_apic);
-            }
-            LOCAL_APIC_READY.store(true, Ordering::Release);
-            // println!(
-            //     "[local_apic] init ready xapic_base={:#x} frequency={}",
-            //     hooks.xapic_base,
-            //     frequency
-            // );
+        if self.apic.lock().is_none() {
+            let mut local_apic = LocalApicContext::new(hooks.xapic_base, cpu_has_x2apic())
+                .map_err(|_| AlienError::EINVAL)?;
+            local_apic.enable().map_err(|_| AlienError::EINVAL)?;
+            let frequency = calibrate_apic_timer(&mut local_apic)?;
+            program_oneshot_timer(&mut local_apic)?;
+            *self.apic.lock() = Some(local_apic);
+            let _ = frequency;
         }
-        // println!("Local APIC domain init");
         Ok(())
     }
 
@@ -185,16 +104,7 @@ impl LocalAPICDomain for LocalAPICDomainImpl {
         let current_tsc = current_ticks();
         let next_deadline = next_deadline as u64;
         let delta_tsc = next_deadline.saturating_sub(current_tsc);
-        // println!(
-        //     "[local_apic] set_timer enter deadline={:#x} current={:#x} delta={} freq={} ready={}",
-        //     next_deadline,
-        //     current_tsc,
-        //     delta_tsc,
-        //     frequency,
-        //     LOCAL_APIC_READY.load(Ordering::Acquire)
-        // );
         if frequency == 0 {
-            // println!("[local_apic] set_timer abort: frequency not calibrated");
             return Err(AlienError::EINVAL);
         }
 
@@ -204,51 +114,45 @@ impl LocalAPICDomain for LocalAPICDomainImpl {
             ticks_to_nanos(delta_tsc)
         };
         let ticks = ((delta_ns as u128 * frequency as u128 / 1_000_000_000) as u32).max(1);
-        // println!(
-        //     "[local_apic] set_timer program delta_ns={} ticks={}",
-        //     delta_ns,
-        //     ticks
-        // );
 
-        let local_apic = local_apic()?;
-        unsafe {
-            local_apic.set_timer_divide(TimerDivide::Div1);
-            local_apic.set_timer_mode(TimerMode::OneShot);
-            local_apic.enable_timer();
-            local_apic.set_timer_initial(ticks);
-        }
-        Ok(())
+        with_apic(&self.apic, |local_apic| {
+            local_apic.configure_oneshot_timer().map_err(|_| AlienError::EINVAL)?;
+            local_apic.set_timer_initial(ticks).map_err(|_| AlienError::EINVAL)?;
+            Ok(())
+        })
     }
 
     fn eoi(&self) -> AlienResult<()> {
-        // println!(
-        //     "[local_apic] eoi enter ready={} freq={}",
-        //     LOCAL_APIC_READY.load(Ordering::Acquire),
-        //     APIC_TIMER_FREQUENCY.load(Ordering::Acquire)
-        // );
-        unsafe { local_apic()?.end_of_interrupt(); }
-        Ok(())
+        with_apic(&self.apic, |local_apic| {
+            local_apic.end_of_interrupt().map_err(|_| AlienError::EINVAL)
+        })
     }
 
     fn send_ipi(&self, target_cpu: usize, vector: u8) -> AlienResult<()> {
-        unsafe { local_apic()?.send_ipi(vector, raw_apic_id(target_cpu as u8)); }
-        Ok(())
+        with_apic(&self.apic, |local_apic| {
+            let apic_id = raw_apic_id(target_cpu as u8);
+            local_apic.send_ipi(apic_id, vector).map_err(|_| AlienError::EINVAL)
+        })
     }
 
     fn send_ipi_self(&self, vector: u8) -> AlienResult<()> {
-        unsafe { local_apic()?.send_ipi_self(vector); }
-        Ok(())
+        with_apic(&self.apic, |local_apic| {
+            local_apic.send_ipi_self(vector).map_err(|_| AlienError::EINVAL)
+        })
     }
 
     fn send_ipi_all_excluding_self(&self, vector: u8) -> AlienResult<()> {
-        unsafe { local_apic()?.send_ipi_all(vector, IpiAllShorthand::AllExcludingSelf); }
-        Ok(())
+        with_apic(&self.apic, |local_apic| {
+            local_apic
+                .send_ipi_all_excluding_self(vector)
+                .map_err(|_| AlienError::EINVAL)
+        })
     }
 
     fn get_error_status(&self) -> AlienResult<u32> {
-        let hooks = self.hooks.get().ok_or(AlienError::EINVAL)?;
-        let is_x2apic = IS_X2APIC.load(Ordering::Acquire);
-        Ok(read_apic_error_status(is_x2apic, hooks.xapic_base))
+        with_apic(&self.apic, |local_apic| {
+            local_apic.read_error_status().map_err(|_| AlienError::EINVAL)
+        })
     }
 }
 
