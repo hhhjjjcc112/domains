@@ -12,6 +12,7 @@ use alloc::{
     format,
     string::{String, ToString},
     sync::Arc,
+    vec::Vec,
 };
 use core::{
     cmp::min,
@@ -40,7 +41,7 @@ impl Debug for DeviceDomain {
 
 pub struct IoAPICDomainImpl {
     apic: Mutex<Option<IoApicContext>>,
-    table: Mutex<BTreeMap<usize, DeviceDomain>>,
+    table: Mutex<BTreeMap<usize, Vec<DeviceDomain>>>,
     count: Mutex<BTreeMap<usize, usize>>,
 }
 
@@ -127,20 +128,25 @@ impl IoAPICDomain for IoAPICDomainImpl {
 
     fn handle_irq(&self, irq: usize) -> AlienResult<()> {
         let mut table = self.table.lock();
-        let Some(device_domain) = table.get(&irq) else {
+        let Some(device_domains) = table.get_mut(&irq) else {
             println!("IO APIC unhandled irq {}", irq);
             return Ok(());
         };
 
-        match device_domain {
-            DeviceDomain::Name(name) => {
-                let device_domain = basic::get_domain(name).unwrap();
-                let device_domain: Arc<dyn DeviceBase> = device_domain.try_into()?;
-                device_domain.handle_irq()?;
-                table.insert(irq, DeviceDomain::Domain(device_domain));
-            }
-            DeviceDomain::Domain(device) => {
-                device.handle_irq()?;
+        for device_domain in device_domains.iter_mut() {
+            match device_domain {
+                DeviceDomain::Name(name) => {
+                    let Some(raw_domain) = basic::get_domain(name) else {
+                        println!("IO APIC irq {} missing domain {}", irq, name);
+                        continue;
+                    };
+                    let typed_domain: Arc<dyn DeviceBase> = raw_domain.try_into()?;
+                    typed_domain.handle_irq()?;
+                    *device_domain = DeviceDomain::Domain(typed_domain);
+                }
+                DeviceDomain::Domain(device) => {
+                    device.handle_irq()?;
+                }
             }
         }
 
@@ -153,8 +159,15 @@ impl IoAPICDomain for IoAPICDomainImpl {
         println!("IO APIC enable irq {}", irq);
         let mut table = self.table.lock();
         let device_domain_name = core::str::from_utf8(device_domain_name.as_slice()).unwrap();
-        table.insert(irq, DeviceDomain::Name(device_domain_name.to_string()));
-        self.count.lock().insert(irq, 0);
+        let entry = table.entry(irq).or_insert_with(Vec::new);
+        let duplicated = entry.iter().any(|domain| match domain {
+            DeviceDomain::Name(existing) => existing == device_domain_name,
+            DeviceDomain::Domain(_) => false,
+        });
+        if !duplicated {
+            entry.push(DeviceDomain::Name(device_domain_name.to_string()));
+        }
+        self.count.lock().entry(irq).or_insert(0);
         Ok(())
     }
 
